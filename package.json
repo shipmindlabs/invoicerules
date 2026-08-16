@@ -1,0 +1,16 @@
+{
+  "name": "invoicerules",
+  "version": "0.0.0",
+  "description": "Check an invoice against the EN 16931 business rules before a tax platform does, and write it as UBL.",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "demo": "node example/demo.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["en16931", "e-invoicing", "ubl", "peppol", "ksef", "vat"]
+}

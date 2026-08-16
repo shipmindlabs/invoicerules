@@ -1,0 +1,122 @@
+/**
+ * The EN 16931 semantic model, in the terms the standard uses.
+ *
+ * The names look bureaucratic on purpose. BT-112 is the taxable amount, and
+ * calling it `taxableAmount` in one library and `totalNet` in the next is how
+ * two systems that both "support EN 16931" fail to exchange an invoice. The
+ * business term ids are what every validator, every tax authority and every
+ * error message on the other side will speak, so they are kept.
+ */
+
+/** Money in a currency, held as a string to keep the decimal exact. */
+export type Amount = string;
+
+export type PartyIdentification = {
+  /** BT-31 / BT-48: the VAT identifier, e.g. "PL5260250274". */
+  readonly vatId?: string;
+  /** BT-30 / BT-47: legal registration identifier. */
+  readonly legalId?: string;
+};
+
+export type Address = {
+  /** BT-40 / BT-55: ISO 3166-1 alpha-2. The one field a tax rule cannot do without. */
+  readonly countryCode: string;
+  readonly line1?: string;
+  readonly city?: string;
+  readonly postalCode?: string;
+};
+
+export type Party = {
+  /** BT-27 / BT-44: the registered name. */
+  readonly name: string;
+  readonly address: Address;
+  readonly identification?: PartyIdentification;
+};
+
+/**
+ * UNCL5305 VAT category codes. The four that decide whether an invoice needs a
+ * reason for charging no VAT.
+ */
+export type VatCategory =
+  /** S — standard rate. */
+  | "S"
+  /** Z — zero rated. */
+  | "Z"
+  /** E — exempt from VAT. */
+  | "E"
+  /** AE — VAT reverse charge. */
+  | "AE"
+  /** K — intra-Community supply. */
+  | "K"
+  /** G — export outside the EU. */
+  | "G"
+  /** O — services outside scope of VAT. */
+  | "O";
+
+export type Line = {
+  /** BT-126: line identifier, unique within the invoice. */
+  readonly id: string;
+  /** BT-153: what was sold. */
+  readonly name: string;
+  /** BT-129: quantity. */
+  readonly quantity: number;
+  /** BT-146: net price of one item. */
+  readonly netPrice: Amount;
+  /** BT-131: line net amount. Checked against quantity × price. */
+  readonly netAmount: Amount;
+  /** BT-151: VAT category for this line. */
+  readonly vatCategory: VatCategory;
+  /** BT-152: VAT rate as a percentage, e.g. "23". */
+  readonly vatRate: string;
+};
+
+/** BG-23: one VAT breakdown group, per category and rate. */
+export type VatBreakdown = {
+  /** BT-118 */
+  readonly category: VatCategory;
+  /** BT-119: percentage. Absent only where the category has no rate. */
+  readonly rate: string;
+  /** BT-116: taxable amount for this category and rate. */
+  readonly taxableAmount: Amount;
+  /** BT-117: the VAT for that taxable amount. */
+  readonly taxAmount: Amount;
+  /** BT-120: why no VAT is charged. Required for Z, E, AE, K, G and O. */
+  readonly exemptionReason?: string;
+  /** BT-121: the coded form of the same reason. */
+  readonly exemptionReasonCode?: string;
+};
+
+export type Totals = {
+  /** BT-106: sum of line net amounts. */
+  readonly lineTotal: Amount;
+  /** BT-109: total without VAT. */
+  readonly taxExclusive: Amount;
+  /** BT-110: total VAT. */
+  readonly taxTotal: Amount;
+  /** BT-112: total with VAT. */
+  readonly taxInclusive: Amount;
+  /** BT-115: what is actually owed. */
+  readonly payable: Amount;
+};
+
+export type Invoice = {
+  /** BT-1: invoice number. */
+  readonly id: string;
+  /** BT-2: issue date, ISO yyyy-mm-dd. */
+  readonly issueDate: string;
+  /** BT-9: due date. */
+  readonly dueDate?: string;
+  /** BT-3: UNCL1001 document type. 380 is a commercial invoice. */
+  readonly typeCode: string;
+  /** BT-5: ISO 4217 currency. */
+  readonly currency: string;
+  readonly seller: Party;
+  readonly buyer: Party;
+  readonly lines: readonly Line[];
+  readonly vatBreakdown: readonly VatBreakdown[];
+  readonly totals: Totals;
+  /** BT-20: payment terms, in words. */
+  readonly paymentTerms?: string;
+  /** BT-13: the buyer's purchase order reference. */
+  readonly purchaseOrderReference?: string;
+};
