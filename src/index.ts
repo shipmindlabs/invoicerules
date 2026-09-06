@@ -7,6 +7,7 @@
 
 export type {
   Address,
+  AllowanceCharge,
   Amount,
   Invoice,
   Line,
@@ -20,6 +21,14 @@ export type {
 export { Decimal, InvalidNumber, sum } from "./decimal.ts";
 
 export { validate, type Result, type Severity, type Violation } from "./rules.ts";
+
+export {
+  computeVatBreakdown,
+  reconcile,
+  taxOf,
+  type RuleCheck,
+  type VatInput,
+} from "./vat.ts";
 
 export {
   InvalidInvoice,

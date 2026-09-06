@@ -15,7 +15,8 @@
  */
 
 import { Decimal } from "./decimal.ts";
-import type { Invoice, VatBreakdown, VatCategory } from "./model.ts";
+import type { AllowanceCharge, Invoice, VatCategory } from "./model.ts";
+import { TOLERANCE, groupKey, readTotals, reconcile } from "./vat.ts";
 
 export type Severity = "fatal" | "warning";
 
@@ -34,17 +35,18 @@ export type Result = {
   readonly warnings: readonly Violation[];
 };
 
+type Report = (rule: string, message: string, at?: string) => void;
+
 /** Categories that charge no VAT and therefore need a reason. */
 const NEEDS_EXEMPTION_REASON: ReadonlySet<VatCategory> = new Set(["Z", "E", "AE", "K", "G", "O"]);
 
-/** The rounding difference the rules tolerate on a total. */
-const TOLERANCE = Decimal.parse("0.01");
+const ZERO_RATE = Decimal.parse("0");
 
 export function validate(invoice: Invoice): Result {
   const violations: Violation[] = [];
-  const fail = (rule: string, message: string, at?: string) =>
+  const fail: Report = (rule, message, at) =>
     violations.push({ rule, severity: "fatal", message, at });
-  const warn = (rule: string, message: string, at?: string) =>
+  const warn: Report = (rule, message, at) =>
     violations.push({ rule, severity: "warning", message, at });
 
   // Presence rules. Dull, and the majority of real rejections.
@@ -92,8 +94,16 @@ export function validate(invoice: Invoice): Result {
     }
   });
 
+  validateAdjustments(invoice, fail);
   validateVat(invoice, fail, warn);
-  validateTotals(invoice, fail);
+  if (!readTotals(invoice.totals)) {
+    fail("BR-12", "one of the invoice totals is missing or not a number", "totals");
+  }
+
+  // The arithmetic, each mismatch reported under the rule it comes from.
+  for (const check of reconcile(invoice)) {
+    if (!check.ok) fail(check.rule, check.message, check.at);
+  }
 
   const fatal = violations.filter((v) => v.severity === "fatal");
   return {
@@ -104,11 +114,33 @@ export function validate(invoice: Invoice): Result {
   };
 }
 
-function validateVat(
-  invoice: Invoice,
-  fail: (rule: string, message: string, at?: string) => void,
-  warn: (rule: string, message: string, at?: string) => void,
-): void {
+/** The same three questions of every document level allowance and charge. */
+function validateAdjustments(invoice: Invoice, fail: Report): void {
+  const each = (
+    items: readonly AllowanceCharge[],
+    list: string,
+    noun: string,
+    rules: { amount: string; category: string; reason: string },
+  ) => {
+    items.forEach((item, index) => {
+      const at = `${list}[${index}]`;
+      if (!safeDecimal(item.amount)) {
+        fail(rules.amount, `the ${noun} has no amount, or it is not a number`, at);
+      }
+      if (!item.vatCategory) fail(rules.category, `the ${noun} has no VAT category`, at);
+      if (!item.reason?.trim() && !item.reasonCode?.trim()) {
+        fail(rules.reason, `the ${noun} gives no reason`, at);
+      }
+    });
+  };
+
+  each(invoice.allowances ?? [], "allowances", "allowance",
+    { amount: "BR-31", category: "BR-32", reason: "BR-33" });
+  each(invoice.charges ?? [], "charges", "charge",
+    { amount: "BR-36", category: "BR-37", reason: "BR-38" });
+}
+
+function validateVat(invoice: Invoice, fail: Report, warn: Report): void {
   if (invoice.vatBreakdown.length === 0) {
     fail("BR-CO-18", "the invoice has no VAT breakdown", "vatBreakdown");
     return;
@@ -125,95 +157,41 @@ function validateVat(
           `category ${group.category} charges no VAT but gives no exemption reason`, at);
       }
       const rate = safeDecimal(group.rate);
-      if (rate && !rate.equals(Decimal.parse("0"))) {
+      if (rate && !rate.equals(ZERO_RATE)) {
         fail(`BR-${group.category}-05`, `category ${group.category} must carry a zero rate, not ${group.rate}`, at);
       }
     }
 
     if (group.category === "S") {
       const rate = safeDecimal(group.rate);
-      if (!rate || rate.compare(Decimal.parse("0")) <= 0) {
+      if (!rate || rate.compare(ZERO_RATE) <= 0) {
         fail("BR-S-05", "a standard-rated group must carry a rate above zero", at);
         return;
       }
-      const taxable = safeDecimal(group.taxableAmount);
-      const tax = safeDecimal(group.taxAmount);
-      if (!taxable || !tax) {
+      if (!safeDecimal(group.taxableAmount) || !safeDecimal(group.taxAmount)) {
         fail("BR-S-08", "the taxable or tax amount is not a number", at);
-        return;
-      }
-      const expected = taxable.percentOf(rate).round(2);
-      if (!tax.equalsWithin(expected, TOLERANCE)) {
-        fail("BR-S-09",
-          `VAT of ${tax.toFixed()} does not match ${group.rate}% of ${taxable.toFixed()} = ${expected.toFixed()}`,
-          at);
       }
     }
   });
 
-  // Every category used on a line must appear in the breakdown, or the totals
-  // will be right by accident and wrong by construction.
-  const inBreakdown = new Set(invoice.vatBreakdown.map(key));
-  for (const [index, line] of invoice.lines.entries()) {
-    const wanted = key({ category: line.vatCategory, rate: line.vatRate } as VatBreakdown);
-    if (!inBreakdown.has(wanted)) {
-      fail("BR-CO-18",
-        `no VAT breakdown group for category ${line.vatCategory} at ${line.vatRate}%`,
-        `lines[${index}]`);
+  // Every category used on a line, an allowance or a charge must appear in the
+  // breakdown, or the totals will be right by accident and wrong by
+  // construction.
+  const inBreakdown = new Set(invoice.vatBreakdown.map((g) => groupKey(g.category, g.rate)));
+  const covered = (category: VatCategory, rate: string, at: string) => {
+    if (!inBreakdown.has(groupKey(category, rate))) {
+      fail("BR-CO-18", `no VAT breakdown group for category ${category} at ${rate}%`, at);
     }
-  }
+  };
+  invoice.lines.forEach((line, index) => covered(line.vatCategory, line.vatRate, `lines[${index}]`));
+  (invoice.allowances ?? []).forEach((item, index) =>
+    covered(item.vatCategory, item.vatRate, `allowances[${index}]`));
+  (invoice.charges ?? []).forEach((item, index) =>
+    covered(item.vatCategory, item.vatRate, `charges[${index}]`));
 
-  if (invoice.vatBreakdown.length > new Set(invoice.vatBreakdown.map(key)).size) {
+  if (invoice.vatBreakdown.length > inBreakdown.size) {
     warn("BR-CO-18", "two VAT breakdown groups share a category and rate; they should be one", "vatBreakdown");
   }
-}
-
-function validateTotals(invoice: Invoice, fail: (rule: string, message: string, at?: string) => void): void {
-  const lineSum = invoice.lines.reduce(
-    (total, line) => total.add(safeDecimal(line.netAmount) ?? Decimal.zero()),
-    Decimal.zero(2),
-  );
-  const taxSum = invoice.vatBreakdown.reduce(
-    (total, group) => total.add(safeDecimal(group.taxAmount) ?? Decimal.zero()),
-    Decimal.zero(2),
-  );
-
-  const lineTotal = safeDecimal(invoice.totals?.lineTotal);
-  const taxExclusive = safeDecimal(invoice.totals?.taxExclusive);
-  const taxTotal = safeDecimal(invoice.totals?.taxTotal);
-  const taxInclusive = safeDecimal(invoice.totals?.taxInclusive);
-  const payable = safeDecimal(invoice.totals?.payable);
-
-  if (!lineTotal || !taxExclusive || !taxTotal || !taxInclusive || !payable) {
-    fail("BR-12", "one of the invoice totals is missing or not a number", "totals");
-    return;
-  }
-
-  if (!lineTotal.equalsWithin(lineSum, TOLERANCE)) {
-    fail("BR-CO-10", `the line total ${lineTotal.toFixed()} is not the sum of the lines, ${lineSum.toFixed()}`,
-      "totals.lineTotal");
-  }
-  if (!taxExclusive.equalsWithin(lineTotal, TOLERANCE)) {
-    fail("BR-CO-13", `the total without VAT ${taxExclusive.toFixed()} does not match the line total ${lineTotal.toFixed()}`,
-      "totals.taxExclusive");
-  }
-  if (!taxTotal.equalsWithin(taxSum, TOLERANCE)) {
-    fail("BR-CO-14", `the VAT total ${taxTotal.toFixed()} is not the sum of the VAT breakdown, ${taxSum.toFixed()}`,
-      "totals.taxTotal");
-  }
-  const expectedInclusive = taxExclusive.add(taxTotal).round(2);
-  if (!taxInclusive.equalsWithin(expectedInclusive, TOLERANCE)) {
-    fail("BR-CO-15", `the total with VAT ${taxInclusive.toFixed()} does not equal ${taxExclusive.toFixed()} + ${taxTotal.toFixed()}`,
-      "totals.taxInclusive");
-  }
-  if (!payable.equalsWithin(taxInclusive, TOLERANCE)) {
-    fail("BR-CO-16", `the amount due ${payable.toFixed()} does not match the total with VAT ${taxInclusive.toFixed()}`,
-      "totals.payable");
-  }
-}
-
-function key(group: VatBreakdown): string {
-  return `${group.category}@${safeDecimal(group.rate)?.toFixed(2) ?? group.rate}`;
 }
 
 function safeDecimal(value: string | undefined): Decimal | undefined {

@@ -55,6 +55,24 @@ of difference a validator rejects. Every amount is an integer and a scale, with
 half-up rounding, and a one-cent rounding difference on a total is tolerated
 because it is normal — two cents is not.
 
+## The VAT breakdown is computed, not summarised
+
+A breakdown group is not a summary of the lines. A document level discount
+belongs to a category and a rate as well, and moves the taxable amount of that
+group; an invoice that reports VAT on the undiscounted lines is consistent with
+itself and still wrong.
+
+```ts
+import { computeVatBreakdown, reconcile } from "invoicerules";
+
+computeVatBreakdown(invoice); // subtotals per category and rate, VAT rounded to the cent
+reconcile(invoice);           // every arithmetic check, passing or not
+```
+
+`reconcile` returns each check with the rule it comes from (`BR-CO-13`) and the
+business term it constrains (`BT-109`), so an amount can be shown with the rule
+it answers to rather than only with what failed.
+
 ## What it does not do
 
 **It is not a Peppol access point.** It writes the document; getting it to the
@@ -76,14 +94,14 @@ of what is missing is below rather than implied.
 
 | | |
 |---|---|
-| Model | EN 16931 semantic terms: parties, lines, VAT breakdown, totals |
-| Rules | presence (BR-01…BR-16), arithmetic (BR-CO-10/13/14/15/16), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18) |
+| Model | EN 16931 semantic terms: parties, lines, document level allowances and charges, VAT breakdown, totals |
+| Rules | presence (BR-01…BR-16), allowances and charges (BR-31…BR-38), arithmetic (BR-CO-10…BR-CO-17), breakdown against the lines (BR-45), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18) |
 | Output | UBL 2.1 with the Peppol BIS Billing 3.0 customization |
-| Not yet | allowances and charges, prepaid amounts, credit notes, CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
+| Not yet | line level allowances and charges, credit notes, CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
 
-Allowances and charges are the biggest gap: an invoice that carries them will
-fail `BR-CO-13` here, because this assumes the total without VAT equals the line
-total. That is a documented limit, not a silent one.
+Line level allowances and charges are the remaining gap: a discount that belongs
+to one line has to be folded into that line's net amount before it gets here.
+That is a documented limit, not a silent one.
 
 ## Install
 
@@ -105,3 +123,5 @@ npm run typecheck   # needs: npm i -D typescript
 ## License
 
 MIT
+
+Maintained by [Shipmind Labs](https://shipmindlabs.com).

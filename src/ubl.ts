@@ -9,7 +9,7 @@
  */
 
 import { validate } from "./rules.ts";
-import type { Invoice, Party, VatBreakdown } from "./model.ts";
+import type { AllowanceCharge, Invoice, Party, VatBreakdown } from "./model.ts";
 
 export class InvalidInvoice extends Error {
   readonly violations: readonly { rule: string; message: string }[];
@@ -46,6 +46,11 @@ export function toUBL(invoice: Invoice, options: UblOptions = {}): string {
   }
 
   const currency = invoice.currency;
+  const totals = invoice.totals;
+  const adjustments = [
+    ...(invoice.allowances ?? []).map((item) => allowanceCharge(item, false, currency)),
+    ...(invoice.charges ?? []).map((item) => allowanceCharge(item, true, currency)),
+  ];
   const lines = invoice.lines.map(
     (line) => `  <cac:InvoiceLine>
     <cbc:ID>${esc(line.id)}</cbc:ID>
@@ -81,15 +86,15 @@ ${party(invoice.seller)}
   <cac:AccountingCustomerParty>
 ${party(invoice.buyer)}
   </cac:AccountingCustomerParty>
-${invoice.paymentTerms ? `  <cac:PaymentTerms><cbc:Note>${esc(invoice.paymentTerms)}</cbc:Note></cac:PaymentTerms>\n` : ""}  <cac:TaxTotal>
-    <cbc:TaxAmount currencyID="${esc(currency)}">${esc(invoice.totals.taxTotal)}</cbc:TaxAmount>
+${invoice.paymentTerms ? `  <cac:PaymentTerms><cbc:Note>${esc(invoice.paymentTerms)}</cbc:Note></cac:PaymentTerms>\n` : ""}${adjustments.length > 0 ? adjustments.join("\n") + "\n" : ""}  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="${esc(currency)}">${esc(totals.taxTotal)}</cbc:TaxAmount>
 ${invoice.vatBreakdown.map((group) => subtotal(group, currency)).join("\n")}
   </cac:TaxTotal>
   <cac:LegalMonetaryTotal>
-    <cbc:LineExtensionAmount currencyID="${esc(currency)}">${esc(invoice.totals.lineTotal)}</cbc:LineExtensionAmount>
-    <cbc:TaxExclusiveAmount currencyID="${esc(currency)}">${esc(invoice.totals.taxExclusive)}</cbc:TaxExclusiveAmount>
-    <cbc:TaxInclusiveAmount currencyID="${esc(currency)}">${esc(invoice.totals.taxInclusive)}</cbc:TaxInclusiveAmount>
-    <cbc:PayableAmount currencyID="${esc(currency)}">${esc(invoice.totals.payable)}</cbc:PayableAmount>
+    <cbc:LineExtensionAmount currencyID="${esc(currency)}">${esc(totals.lineTotal)}</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="${esc(currency)}">${esc(totals.taxExclusive)}</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="${esc(currency)}">${esc(totals.taxInclusive)}</cbc:TaxInclusiveAmount>
+${totals.allowanceTotal ? `    <cbc:AllowanceTotalAmount currencyID="${esc(currency)}">${esc(totals.allowanceTotal)}</cbc:AllowanceTotalAmount>\n` : ""}${totals.chargeTotal ? `    <cbc:ChargeTotalAmount currencyID="${esc(currency)}">${esc(totals.chargeTotal)}</cbc:ChargeTotalAmount>\n` : ""}${totals.prepaid ? `    <cbc:PrepaidAmount currencyID="${esc(currency)}">${esc(totals.prepaid)}</cbc:PrepaidAmount>\n` : ""}${totals.rounding ? `    <cbc:PayableRoundingAmount currencyID="${esc(currency)}">${esc(totals.rounding)}</cbc:PayableRoundingAmount>\n` : ""}    <cbc:PayableAmount currencyID="${esc(currency)}">${esc(totals.payable)}</cbc:PayableAmount>
   </cac:LegalMonetaryTotal>
 ${lines.join("\n")}
 </Invoice>
@@ -110,6 +115,18 @@ ${party.address.line1 ? `        <cbc:StreetName>${esc(party.address.line1)}</cb
         <cbc:RegistrationName>${esc(party.name)}</cbc:RegistrationName>
 ${party.identification?.legalId ? `        <cbc:CompanyID>${esc(party.identification.legalId)}</cbc:CompanyID>\n` : ""}      </cac:PartyLegalEntity>
     </cac:Party>`;
+}
+
+function allowanceCharge(item: AllowanceCharge, isCharge: boolean, currency: string): string {
+  return `  <cac:AllowanceCharge>
+    <cbc:ChargeIndicator>${isCharge}</cbc:ChargeIndicator>
+${item.reasonCode ? `    <cbc:AllowanceChargeReasonCode>${esc(item.reasonCode)}</cbc:AllowanceChargeReasonCode>\n` : ""}${item.reason ? `    <cbc:AllowanceChargeReason>${esc(item.reason)}</cbc:AllowanceChargeReason>\n` : ""}${item.percentage ? `    <cbc:MultiplierFactorNumeric>${esc(item.percentage)}</cbc:MultiplierFactorNumeric>\n` : ""}    <cbc:Amount currencyID="${esc(currency)}">${esc(item.amount)}</cbc:Amount>
+${item.baseAmount ? `    <cbc:BaseAmount currencyID="${esc(currency)}">${esc(item.baseAmount)}</cbc:BaseAmount>\n` : ""}    <cac:TaxCategory>
+      <cbc:ID>${esc(item.vatCategory)}</cbc:ID>
+      <cbc:Percent>${esc(item.vatRate)}</cbc:Percent>
+      <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+    </cac:TaxCategory>
+  </cac:AllowanceCharge>`;
 }
 
 function subtotal(group: VatBreakdown, currency: string): string {

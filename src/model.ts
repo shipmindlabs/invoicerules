@@ -70,6 +70,29 @@ export type Line = {
   readonly vatRate: string;
 };
 
+/**
+ * BG-20 / BG-21: a document level allowance or charge. The amount is always
+ * positive; which list it is in decides whether it is taken off or added on.
+ * It carries a category and a rate because it belongs to a VAT breakdown
+ * group, not to the invoice as a whole.
+ */
+export type AllowanceCharge = {
+  /** BT-92 / BT-99: the amount. */
+  readonly amount: Amount;
+  /** BT-93 / BT-100: the amount a percentage applies to. */
+  readonly baseAmount?: Amount;
+  /** BT-94 / BT-101: percentage of the base amount. */
+  readonly percentage?: string;
+  /** BT-95 / BT-102: the VAT category it belongs to. */
+  readonly vatCategory: VatCategory;
+  /** BT-96 / BT-103: the VAT rate it belongs to. */
+  readonly vatRate: string;
+  /** BT-97 / BT-104: why it is on the invoice. */
+  readonly reason?: string;
+  /** BT-98 / BT-105: the coded form of the same reason. */
+  readonly reasonCode?: string;
+};
+
 /** BG-23: one VAT breakdown group, per category and rate. */
 export type VatBreakdown = {
   /** BT-118 */
@@ -89,12 +112,20 @@ export type VatBreakdown = {
 export type Totals = {
   /** BT-106: sum of line net amounts. */
   readonly lineTotal: Amount;
+  /** BT-107: sum of document level allowances. */
+  readonly allowanceTotal?: Amount;
+  /** BT-108: sum of document level charges. */
+  readonly chargeTotal?: Amount;
   /** BT-109: total without VAT. */
   readonly taxExclusive: Amount;
   /** BT-110: total VAT. */
   readonly taxTotal: Amount;
   /** BT-112: total with VAT. */
   readonly taxInclusive: Amount;
+  /** BT-113: what has already been paid. */
+  readonly prepaid?: Amount;
+  /** BT-114: rounding applied to the amount due. */
+  readonly rounding?: Amount;
   /** BT-115: what is actually owed. */
   readonly payable: Amount;
 };
@@ -113,6 +144,10 @@ export type Invoice = {
   readonly seller: Party;
   readonly buyer: Party;
   readonly lines: readonly Line[];
+  /** BG-20: document level allowances. */
+  readonly allowances?: readonly AllowanceCharge[];
+  /** BG-21: document level charges. */
+  readonly charges?: readonly AllowanceCharge[];
   readonly vatBreakdown: readonly VatBreakdown[];
   readonly totals: Totals;
   /** BT-20: payment terms, in words. */
