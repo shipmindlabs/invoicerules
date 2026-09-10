@@ -12,9 +12,22 @@ at your own desk, with a message naming the rule, beats failing at theirs.
 ```console
 $ npm run demo
 Valid: false
-  BR-CO-09     seller.identification.vatId  the seller's VAT identifier "5260250274" does not start with a country code
-  BR-AE-10     vatBreakdown[0]  category AE charges no VAT but gives no exemption reason
-  BR-CO-16     totals.payable  the amount due 330.00 does not match the total with VAT 300.00
+  BR-CO-09     /Invoice/AccountingSupplierParty/Party/PartyTaxScheme/CompanyID
+               the seller's VAT identifier "5260250274" does not start with a country code
+  BR-AE-10     /Invoice/TaxTotal/TaxSubtotal[1]/TaxCategory/TaxExemptionReason
+               category AE charges no VAT but gives no exemption reason
+  BR-CO-16     /Invoice/LegalMonetaryTotal/PayableAmount
+               the amount due 330.00 does not match the total with VAT 300.00
+
+Coverage: 27 checks, 24 passed, 3 failed
+The totals, and every rule that looked at them:
+  BR-CO-10     pass  /Invoice/LegalMonetaryTotal/LineExtensionAmount
+  BR-CO-11     pass  /Invoice/LegalMonetaryTotal/AllowanceTotalAmount
+  BR-CO-12     pass  /Invoice/LegalMonetaryTotal/ChargeTotalAmount
+  BR-CO-13     pass  /Invoice/LegalMonetaryTotal/TaxExclusiveAmount
+  BR-CO-14     pass  /Invoice/TaxTotal/TaxAmount
+  BR-CO-15     pass  /Invoice/LegalMonetaryTotal/TaxInclusiveAmount
+  BR-CO-16     fail  /Invoice/LegalMonetaryTotal/PayableAmount
 
 Trying to write it as UBL anyway:
   refused, 3 fatal rule(s)
@@ -33,11 +46,30 @@ import { validate, toUBL } from "invoicerules";
 
 const result = validate(invoice);
 if (!result.ok) {
-  for (const v of result.fatal) console.error(`${v.rule} at ${v.at}: ${v.message}`);
+  for (const v of result.fatal) console.error(`${v.rule} at ${v.path ?? v.at}: ${v.message}`);
 }
 
 const xml = toUBL(invoice); // throws unless the rules pass
 ```
+
+## A failure is a place, not a boolean
+
+`validate` also returns a coverage report: every rule that was evaluated, how it
+came out, and the element it looked at — named both as the model field and as
+the path it has in the document that gets sent.
+
+```ts
+validate(invoice).coverage.find((c) => c.rule === "BR-CO-16");
+// { rule: "BR-CO-16", outcome: "fail",
+//   at: "totals.payable", path: "/Invoice/LegalMonetaryTotal/PayableAmount",
+//   message: "the amount due 330.00 does not match the total with VAT 300.00" }
+```
+
+A rule that runs against several elements is reported against each of them, so a
+line with no breakdown group is `/Invoice/InvoiceLine[3]/Item/ClassifiedTaxCategory/ID`
+and not the invoice as a whole. A rule with nothing to check — there is no
+seller VAT identifier to test the prefix of — is absent rather than counted as
+passing, so the report says what was actually looked at.
 
 ## Why the rule identifiers are kept
 
@@ -96,6 +128,7 @@ of what is missing is below rather than implied.
 |---|---|
 | Model | EN 16931 semantic terms: parties, lines, document level allowances and charges, VAT breakdown, totals |
 | Rules | presence (BR-01…BR-16), allowances and charges (BR-31…BR-38), arithmetic (BR-CO-10…BR-CO-17), breakdown against the lines (BR-45), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18) |
+| Report | every rule evaluated, its outcome, and the element path it looked at |
 | Output | UBL 2.1 with the Peppol BIS Billing 3.0 customization |
 | Not yet | line level allowances and charges, credit notes, CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
 

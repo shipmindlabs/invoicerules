@@ -20,7 +20,16 @@ export type {
 
 export { Decimal, InvalidNumber, sum } from "./decimal.ts";
 
-export { validate, type Result, type Severity, type Violation } from "./rules.ts";
+export { ublPath } from "./paths.ts";
+
+export {
+  validate,
+  type Outcome,
+  type Result,
+  type RuleOutcome,
+  type Severity,
+  type Violation,
+} from "./rules.ts";
 
 export {
   computeVatBreakdown,

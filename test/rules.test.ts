@@ -89,7 +89,8 @@ test("a line amount that does not match quantity times price is caught", () => {
   assert.equal(result.ok, false);
   const violation = result.violations.find((v) => v.rule === "BR-CO-16-LINE")!;
   assert.match(violation.message, /2 × 100\.00 = 200\.00/);
-  assert.equal(violation.at, "lines[0]");
+  assert.equal(violation.at, "lines[0].netAmount");
+  assert.equal(violation.path, "/Invoice/InvoiceLine[1]/LineExtensionAmount");
 });
 
 test("VAT that does not match the rate is caught", () => {

@@ -51,7 +51,16 @@ const broken: Invoice = {
 const result = validate(broken);
 console.log(`Valid: ${result.ok}`);
 for (const violation of result.violations) {
-  console.log(`  ${violation.rule.padEnd(12)} ${violation.at ?? "-"}  ${violation.message}`);
+  console.log(`  ${violation.rule.padEnd(12)} ${violation.path ?? violation.at ?? "-"}`);
+  console.log(`  ${" ".repeat(12)} ${violation.message}`);
+}
+
+const passed = result.coverage.filter((entry) => entry.outcome === "pass").length;
+const failed = result.coverage.filter((entry) => entry.outcome === "fail").length;
+console.log(`\nCoverage: ${result.coverage.length} checks, ${passed} passed, ${failed} failed`);
+console.log("The totals, and every rule that looked at them:");
+for (const entry of result.coverage.filter((c) => c.at?.startsWith("totals."))) {
+  console.log(`  ${entry.rule.padEnd(12)} ${entry.outcome.padEnd(4)}  ${entry.path}`);
 }
 
 console.log("\nTrying to write it as UBL anyway:");
