@@ -9,7 +9,7 @@
  */
 
 import { validate } from "./rules.ts";
-import type { AllowanceCharge, Invoice, Party, VatBreakdown } from "./model.ts";
+import type { AllowanceCharge, Invoice, LineAllowanceCharge, Party, VatBreakdown } from "./model.ts";
 
 export class InvalidInvoice extends Error {
   readonly violations: readonly { rule: string; message: string }[];
@@ -48,15 +48,19 @@ export function toUBL(invoice: Invoice, options: UblOptions = {}): string {
   const currency = invoice.currency;
   const totals = invoice.totals;
   const adjustments = [
-    ...(invoice.allowances ?? []).map((item) => allowanceCharge(item, false, currency)),
-    ...(invoice.charges ?? []).map((item) => allowanceCharge(item, true, currency)),
+    ...(invoice.allowances ?? []).map((item) => allowanceCharge(item, false, currency, "  ")),
+    ...(invoice.charges ?? []).map((item) => allowanceCharge(item, true, currency, "  ")),
   ];
-  const lines = invoice.lines.map(
-    (line) => `  <cac:InvoiceLine>
+  const lines = invoice.lines.map((line) => {
+    const lineAdjustments = [
+      ...(line.allowances ?? []).map((item) => allowanceCharge(item, false, currency, "    ")),
+      ...(line.charges ?? []).map((item) => allowanceCharge(item, true, currency, "    ")),
+    ];
+    return `  <cac:InvoiceLine>
     <cbc:ID>${esc(line.id)}</cbc:ID>
     <cbc:InvoicedQuantity unitCode="C62">${esc(String(line.quantity))}</cbc:InvoicedQuantity>
     <cbc:LineExtensionAmount currencyID="${esc(currency)}">${esc(line.netAmount)}</cbc:LineExtensionAmount>
-    <cac:Item>
+${lineAdjustments.length > 0 ? lineAdjustments.join("\n") + "\n" : ""}    <cac:Item>
       <cbc:Name>${esc(line.name)}</cbc:Name>
       <cac:ClassifiedTaxCategory>
         <cbc:ID>${esc(line.vatCategory)}</cbc:ID>
@@ -67,8 +71,8 @@ export function toUBL(invoice: Invoice, options: UblOptions = {}): string {
     <cac:Price>
       <cbc:PriceAmount currencyID="${esc(currency)}">${esc(line.netPrice)}</cbc:PriceAmount>
     </cac:Price>
-  </cac:InvoiceLine>`,
-  );
+  </cac:InvoiceLine>`;
+  });
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
@@ -117,16 +121,44 @@ ${party.identification?.legalId ? `        <cbc:CompanyID>${esc(party.identifica
     </cac:Party>`;
 }
 
-function allowanceCharge(item: AllowanceCharge, isCharge: boolean, currency: string): string {
-  return `  <cac:AllowanceCharge>
-    <cbc:ChargeIndicator>${isCharge}</cbc:ChargeIndicator>
-${item.reasonCode ? `    <cbc:AllowanceChargeReasonCode>${esc(item.reasonCode)}</cbc:AllowanceChargeReasonCode>\n` : ""}${item.reason ? `    <cbc:AllowanceChargeReason>${esc(item.reason)}</cbc:AllowanceChargeReason>\n` : ""}${item.percentage ? `    <cbc:MultiplierFactorNumeric>${esc(item.percentage)}</cbc:MultiplierFactorNumeric>\n` : ""}    <cbc:Amount currencyID="${esc(currency)}">${esc(item.amount)}</cbc:Amount>
-${item.baseAmount ? `    <cbc:BaseAmount currencyID="${esc(currency)}">${esc(item.baseAmount)}</cbc:BaseAmount>\n` : ""}    <cac:TaxCategory>
-      <cbc:ID>${esc(item.vatCategory)}</cbc:ID>
-      <cbc:Percent>${esc(item.vatRate)}</cbc:Percent>
-      <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
-    </cac:TaxCategory>
-  </cac:AllowanceCharge>`;
+/**
+ * One AllowanceCharge element. A line level one carries no TaxCategory: it
+ * belongs to the line, which states the category once in its Item.
+ */
+function allowanceCharge(
+  item: AllowanceCharge | LineAllowanceCharge,
+  isCharge: boolean,
+  currency: string,
+  indent: string,
+): string {
+  const parts = [
+    `${indent}<cac:AllowanceCharge>`,
+    `${indent}  <cbc:ChargeIndicator>${isCharge}</cbc:ChargeIndicator>`,
+  ];
+  if (item.reasonCode) {
+    parts.push(`${indent}  <cbc:AllowanceChargeReasonCode>${esc(item.reasonCode)}</cbc:AllowanceChargeReasonCode>`);
+  }
+  if (item.reason) {
+    parts.push(`${indent}  <cbc:AllowanceChargeReason>${esc(item.reason)}</cbc:AllowanceChargeReason>`);
+  }
+  if (item.percentage) {
+    parts.push(`${indent}  <cbc:MultiplierFactorNumeric>${esc(item.percentage)}</cbc:MultiplierFactorNumeric>`);
+  }
+  parts.push(`${indent}  <cbc:Amount currencyID="${esc(currency)}">${esc(item.amount)}</cbc:Amount>`);
+  if (item.baseAmount) {
+    parts.push(`${indent}  <cbc:BaseAmount currencyID="${esc(currency)}">${esc(item.baseAmount)}</cbc:BaseAmount>`);
+  }
+  if ("vatCategory" in item) {
+    parts.push(
+      `${indent}  <cac:TaxCategory>`,
+      `${indent}    <cbc:ID>${esc(item.vatCategory)}</cbc:ID>`,
+      `${indent}    <cbc:Percent>${esc(item.vatRate)}</cbc:Percent>`,
+      `${indent}    <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>`,
+      `${indent}  </cac:TaxCategory>`,
+    );
+  }
+  parts.push(`${indent}</cac:AllowanceCharge>`);
+  return parts.join("\n");
 }
 
 function subtotal(group: VatBreakdown, currency: string): string {

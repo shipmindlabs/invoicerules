@@ -13,13 +13,15 @@
  * list of failures that hides what was never checked.
  *
  * Rule identifiers (BR-*, BR-CO-*, BR-S-*) are the standard's own, because they
- * are what the other side's rejection message will quote. The wording of each
- * check is this library's own; the normative text lives in EN 16931-1, which is
- * published by CEN and not reproduced here.
+ * are what the other side's rejection message will quote; PEPPOL-EN16931-R0xx
+ * are Peppol BIS Billing 3.0's, which apply because that is the customization
+ * this library writes. The wording of each check is this library's own; the
+ * normative text lives in EN 16931-1, which is published by CEN and not
+ * reproduced here.
  */
 
 import { Decimal } from "./decimal.ts";
-import type { AllowanceCharge, Invoice, VatCategory } from "./model.ts";
+import type { AllowanceCharge, Invoice, Line, LineAllowanceCharge, VatCategory } from "./model.ts";
 import { ublPath } from "./paths.ts";
 import { TOLERANCE, groupKey, readTotals, reconcile } from "./vat.ts";
 
@@ -61,21 +63,33 @@ export type Result = {
 type Report = (rule: string, message: string, at?: string) => void;
 type Check = (rule: string, ok: boolean, at: string, message: string) => void;
 
+/** Which rules an allowance or charge answers to at its own level. */
+type AdjustmentRules = {
+  readonly amount: string;
+  readonly reason: string;
+  /** Line level allowances and charges have no category of their own. */
+  readonly category?: string;
+};
+
 /** Categories that charge no VAT and therefore need a reason. */
 const NEEDS_EXEMPTION_REASON: ReadonlySet<VatCategory> = new Set(["Z", "E", "AE", "K", "G", "O"]);
 
 const ZERO_RATE = Decimal.parse("0");
+const ZERO = Decimal.zero(2);
 
 export function validate(invoice: Invoice): Result {
   const coverage: RuleOutcome[] = [];
-  const allowanceCount = invoice.allowances?.length ?? 0;
+  const context = {
+    allowances: invoice.allowances?.length ?? 0,
+    lineAllowances: invoice.lines.map((line) => line.allowances?.length ?? 0),
+  };
 
   const record = (rule: string, outcome: Outcome, message: string, at?: string): void => {
     coverage.push({
       rule,
       outcome,
       at,
-      path: ublPath(at, allowanceCount),
+      path: ublPath(at, context),
       message: outcome === "pass" ? undefined : message,
     });
   };
@@ -111,18 +125,32 @@ export function validate(invoice: Invoice): Result {
     check("BR-25", !!line.name?.trim(), `${at}.name`, "the line has no item name");
     check("BR-CO-04", !!line.vatCategory, `${at}.vatCategory`, "the line has no VAT category");
 
-    // The check that catches a wrong invoice that looks right.
+    validateAdjustments(line.allowances ?? [], `${at}.allowances`, "line allowance",
+      { amount: "BR-41", reason: "BR-42" }, check);
+    validateAdjustments(line.charges ?? [], `${at}.charges`, "line charge",
+      { amount: "BR-43", reason: "BR-44" }, check);
+
+    // The check that catches a wrong invoice that looks right. A line level
+    // discount reaches the totals and the VAT breakdown only through BT-131,
+    // so it has to be inside the line net amount before anything is added up.
+    const adjusted = (line.allowances?.length ?? 0) + (line.charges?.length ?? 0) > 0;
     try {
-      const expected = Decimal.parse(line.netPrice).multiply(Decimal.parse(line.quantity)).round(2);
+      const expected = expectedLineNet(line);
       const stated = Decimal.parse(line.netAmount);
       check("BR-CO-16-LINE", stated.equalsWithin(expected, TOLERANCE), `${at}.netAmount`,
-        `the line amount ${stated.toFixed()} does not match ${line.quantity} × ${line.netPrice} = ${expected.toFixed()}`);
+        adjusted
+          ? `the line amount ${stated.toFixed()} does not match ${line.quantity} × ${line.netPrice} less its allowances and plus its charges, ${expected.toFixed()}`
+          : `the line amount ${stated.toFixed()} does not match ${line.quantity} × ${line.netPrice} = ${expected.toFixed()}`);
     } catch {
       fail("BR-CO-16-LINE", "the line quantity, price or amount is not a number", `${at}.netAmount`);
     }
   });
 
-  validateAdjustments(invoice, check);
+  validateAdjustments(invoice.allowances ?? [], "allowances", "allowance",
+    { amount: "BR-31", category: "BR-32", reason: "BR-33" }, check);
+  validateAdjustments(invoice.charges ?? [], "charges", "charge",
+    { amount: "BR-36", category: "BR-37", reason: "BR-38" }, check);
+
   validateVat(invoice, check, fail, warn);
   check("BR-12", !!readTotals(invoice.totals), "totals",
     "one of the invoice totals is missing or not a number");
@@ -153,29 +181,70 @@ function asViolation(entry: RuleOutcome): Violation {
   };
 }
 
-/** The same three questions of every document level allowance and charge. */
-function validateAdjustments(invoice: Invoice, check: Check): void {
-  const each = (
-    items: readonly AllowanceCharge[],
-    list: string,
-    noun: string,
-    rules: { amount: string; category: string; reason: string },
-  ) => {
-    items.forEach((item, index) => {
-      const at = `${list}[${index}]`;
-      check(rules.amount, !!safeDecimal(item.amount), `${at}.amount`,
-        `the ${noun} has no amount, or it is not a number`);
-      check(rules.category, !!item.vatCategory, `${at}.vatCategory`,
-        `the ${noun} has no VAT category`);
-      check(rules.reason, !!(item.reason?.trim() || item.reasonCode?.trim()), `${at}.reason`,
-        `the ${noun} gives no reason`);
-    });
-  };
+/** BT-131: quantity × price, less the line's own allowances and plus its charges. */
+function expectedLineNet(line: Line): Decimal {
+  const priced = Decimal.parse(line.netPrice).multiply(Decimal.parse(line.quantity)).round(2);
+  const taken = sumAmounts(line.allowances ?? []);
+  const added = sumAmounts(line.charges ?? []);
+  return priced.subtract(taken).add(added).round(2);
+}
 
-  each(invoice.allowances ?? [], "allowances", "allowance",
-    { amount: "BR-31", category: "BR-32", reason: "BR-33" });
-  each(invoice.charges ?? [], "charges", "charge",
-    { amount: "BR-36", category: "BR-37", reason: "BR-38" });
+function sumAmounts(items: readonly LineAllowanceCharge[]): Decimal {
+  return items
+    .reduce<Decimal>((total, item) => total.add(safeDecimal(item.amount) ?? ZERO), ZERO)
+    .round(2);
+}
+
+/** The same questions of every allowance and charge, on a line or on the document. */
+function validateAdjustments(
+  items: readonly (AllowanceCharge | LineAllowanceCharge)[],
+  list: string,
+  noun: string,
+  rules: AdjustmentRules,
+  check: Check,
+): void {
+  items.forEach((item, index) => {
+    const at = `${list}[${index}]`;
+    check(rules.amount, !!safeDecimal(item.amount), `${at}.amount`,
+      `the ${noun} has no amount, or it is not a number`);
+    if (rules.category) {
+      check(rules.category, "vatCategory" in item && !!item.vatCategory, `${at}.vatCategory`,
+        `the ${noun} has no VAT category`);
+    }
+    check(rules.reason, !!(item.reason?.trim() || item.reasonCode?.trim()), `${at}.reason`,
+      `the ${noun} gives no reason`);
+    validatePercentage(item, at, noun, check);
+  });
+}
+
+/**
+ * A percentage and the amount it is a percentage of only mean something
+ * together, and a receiver that recomputes one from the other has to get the
+ * amount the document states.
+ */
+function validatePercentage(
+  item: AllowanceCharge | LineAllowanceCharge,
+  at: string,
+  noun: string,
+  check: Check,
+): void {
+  const base = safeDecimal(item.baseAmount);
+  const percentage = safeDecimal(item.percentage);
+
+  if (item.percentage !== undefined) {
+    check("PEPPOL-EN16931-R041", !!base, `${at}.baseAmount`,
+      `the ${noun} gives a percentage but no base amount to apply it to`);
+  }
+  if (item.baseAmount !== undefined) {
+    check("PEPPOL-EN16931-R042", !!percentage, `${at}.percentage`,
+      `the ${noun} gives a base amount but no percentage of it`);
+  }
+
+  const amount = safeDecimal(item.amount);
+  if (!base || !percentage || !amount) return;
+  const expected = base.percentOf(percentage).round(2);
+  check("PEPPOL-EN16931-R040", amount.equalsWithin(expected, TOLERANCE), `${at}.amount`,
+    `the ${noun} of ${amount.toFixed()} is not ${item.percentage}% of ${base.toFixed()} = ${expected.toFixed()}`);
 }
 
 function validateVat(invoice: Invoice, check: Check, fail: Report, warn: Report): void {
@@ -213,7 +282,7 @@ function validateVat(invoice: Invoice, check: Check, fail: Report, warn: Report)
 
   // Every category used on a line, an allowance or a charge must appear in the
   // breakdown, or the totals will be right by accident and wrong by
-  // construction.
+  // construction. A line level allowance follows its line's category.
   const inBreakdown = new Set(invoice.vatBreakdown.map((g) => groupKey(g.category, g.rate)));
   const covered = (category: VatCategory, rate: string, at: string) =>
     check("BR-CO-18", inBreakdown.has(groupKey(category, rate)), at,

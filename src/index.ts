@@ -11,6 +11,7 @@ export type {
   Amount,
   Invoice,
   Line,
+  LineAllowanceCharge,
   Party,
   PartyIdentification,
   Totals,
@@ -20,7 +21,7 @@ export type {
 
 export { Decimal, InvalidNumber, sum } from "./decimal.ts";
 
-export { ublPath } from "./paths.ts";
+export { ublPath, type PathContext } from "./paths.ts";
 
 export {
   validate,

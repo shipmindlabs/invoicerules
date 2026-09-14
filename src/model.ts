@@ -53,6 +53,25 @@ export type VatCategory =
   /** O — services outside scope of VAT. */
   | "O";
 
+/**
+ * BG-27 / BG-28: a line level allowance or charge. It carries no VAT category
+ * of its own: it belongs to the line, follows the line's category and rate, and
+ * is taken off or added on before the line net amount (BT-131) that the totals
+ * and the VAT breakdown are built from.
+ */
+export type LineAllowanceCharge = {
+  /** BT-136 / BT-141: the amount, always positive. */
+  readonly amount: Amount;
+  /** BT-137 / BT-142: the amount a percentage applies to. */
+  readonly baseAmount?: Amount;
+  /** BT-138 / BT-143: percentage of the base amount. */
+  readonly percentage?: string;
+  /** BT-139 / BT-144: why it is on the line. */
+  readonly reason?: string;
+  /** BT-140 / BT-145: the coded form of the same reason. */
+  readonly reasonCode?: string;
+};
+
 export type Line = {
   /** BT-126: line identifier, unique within the invoice. */
   readonly id: string;
@@ -62,12 +81,16 @@ export type Line = {
   readonly quantity: number;
   /** BT-146: net price of one item. */
   readonly netPrice: Amount;
-  /** BT-131: line net amount. Checked against quantity × price. */
+  /** BT-131: line net amount, quantity × price less the line's allowances and plus its charges. */
   readonly netAmount: Amount;
   /** BT-151: VAT category for this line. */
   readonly vatCategory: VatCategory;
   /** BT-152: VAT rate as a percentage, e.g. "23". */
   readonly vatRate: string;
+  /** BG-27: line level allowances. */
+  readonly allowances?: readonly LineAllowanceCharge[];
+  /** BG-28: line level charges. */
+  readonly charges?: readonly LineAllowanceCharge[];
 };
 
 /**

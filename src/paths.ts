@@ -7,8 +7,8 @@
  * is the slow part of fixing a rejection. Every outcome carries both.
  *
  * Indices are one-based, because that is what XPath counts. Allowances and
- * charges are two lists in the model and one in UBL, so a charge is found
- * after the allowances that precede it.
+ * charges are two lists in the model and one in UBL, so a charge is found after
+ * the allowances that precede it — at document level and within a line.
  */
 
 const SUPPLIER = "/Invoice/AccountingSupplierParty/Party";
@@ -76,16 +76,49 @@ const ADJUSTMENT_FIELDS: Record<string, string> = {
   reasonCode: "/AllowanceChargeReasonCode",
 };
 
+/** A line level allowance has no tax category of its own; the line carries it. */
+const LINE_ADJUSTMENT_FIELDS: Record<string, string> = {
+  amount: "/Amount",
+  baseAmount: "/BaseAmount",
+  percentage: "/MultiplierFactorNumeric",
+  reason: "/AllowanceChargeReason",
+  reasonCode: "/AllowanceChargeReasonCode",
+};
+
+/** What is needed to count two model lists into the one list UBL writes. */
+export type PathContext = {
+  /** How many document level allowances precede the document level charges. */
+  readonly allowances?: number;
+  /** How many allowances each line carries, in line order. */
+  readonly lineAllowances?: readonly number[];
+};
+
+const WITHIN_LINE = /^lines\[(\d+)\]\.(allowances|charges)\[(\d+)\](?:\.([a-zA-Z]+))?$/;
+
 /**
  * The UBL element a model location points at: "lines[2].netPrice" becomes
  * "/Invoice/InvoiceLine[3]/Price/PriceAmount". Nothing when the location has no
  * element of its own in the document.
  */
-export function ublPath(at: string | undefined, allowanceCount = 0): string | undefined {
+export function ublPath(
+  at: string | undefined,
+  context: number | PathContext = 0,
+): string | undefined {
   if (!at) return undefined;
 
   const fixed = FIXED[at];
   if (fixed) return fixed;
+
+  const { allowances = 0, lineAllowances = [] } =
+    typeof context === "number" ? { allowances: context, lineAllowances: [] } : context;
+
+  const withinLine = WITHIN_LINE.exec(at);
+  if (withinLine) {
+    const [, lineIndex, list, index, field] = withinLine;
+    const before = list === "charges" ? lineAllowances[Number(lineIndex)] ?? 0 : 0;
+    const base = `/Invoice/InvoiceLine[${Number(lineIndex) + 1}]/AllowanceCharge[${Number(index) + 1 + before}]`;
+    return element(base, LINE_ADJUSTMENT_FIELDS, field);
+  }
 
   const parsed = /^([a-zA-Z]+)\[(\d+)\](?:\.([a-zA-Z]+))?$/.exec(at);
   if (!parsed) return undefined;
@@ -100,7 +133,7 @@ export function ublPath(at: string | undefined, allowanceCount = 0): string | un
     case "allowances":
       return element(`/Invoice/AllowanceCharge[${position}]`, ADJUSTMENT_FIELDS, field);
     case "charges":
-      return element(`/Invoice/AllowanceCharge[${position + allowanceCount}]`, ADJUSTMENT_FIELDS, field);
+      return element(`/Invoice/AllowanceCharge[${position + allowances}]`, ADJUSTMENT_FIELDS, field);
     default:
       return undefined;
   }
