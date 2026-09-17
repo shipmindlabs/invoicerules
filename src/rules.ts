@@ -133,16 +133,18 @@ export function validate(invoice: Invoice): Result {
     // The check that catches a wrong invoice that looks right. A line level
     // discount reaches the totals and the VAT breakdown only through BT-131,
     // so it has to be inside the line net amount before anything is added up.
+    // EN 16931 leaves the line arithmetic to the syntax bindings, so the rule a
+    // receiver quotes for it is Peppol's R120 rather than a BR-CO.
     const adjusted = (line.allowances?.length ?? 0) + (line.charges?.length ?? 0) > 0;
     try {
       const expected = expectedLineNet(line);
       const stated = Decimal.parse(line.netAmount);
-      check("BR-CO-16-LINE", stated.equalsWithin(expected, TOLERANCE), `${at}.netAmount`,
+      check("PEPPOL-EN16931-R120", stated.equalsWithin(expected, TOLERANCE), `${at}.netAmount`,
         adjusted
           ? `the line amount ${stated.toFixed()} does not match ${line.quantity} × ${line.netPrice} less its allowances and plus its charges, ${expected.toFixed()}`
           : `the line amount ${stated.toFixed()} does not match ${line.quantity} × ${line.netPrice} = ${expected.toFixed()}`);
     } catch {
-      fail("BR-CO-16-LINE", "the line quantity, price or amount is not a number", `${at}.netAmount`);
+      fail("PEPPOL-EN16931-R120", "the line quantity, price or amount is not a number", `${at}.netAmount`);
     }
   });
 

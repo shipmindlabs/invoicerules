@@ -75,7 +75,7 @@ test("a failure carries the path of the offending element", () => {
     lines: [{ ...line("1", "200.00"), netAmount: "250.00" }],
   });
 
-  const violation = result.violations.find((v) => v.rule === "BR-CO-16-LINE")!;
+  const violation = result.violations.find((v) => v.rule === "PEPPOL-EN16931-R120")!;
   assert.equal(violation.at, "lines[0].netAmount");
   assert.equal(violation.path, "/Invoice/InvoiceLine[1]/LineExtensionAmount");
 

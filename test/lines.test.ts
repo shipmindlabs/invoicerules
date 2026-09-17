@@ -73,7 +73,7 @@ test("a line discount lands in the line net amount, the totals and the breakdown
 
 test("a line amount that forgets its own discount is caught", () => {
   const result = validate(invoice({ lines: [line({ netAmount: "205.00" })] }));
-  const violation = result.violations.find((v) => v.rule === "BR-CO-16-LINE")!;
+  const violation = result.violations.find((v) => v.rule === "PEPPOL-EN16931-R120")!;
   assert.match(violation.message, /less its allowances and plus its charges, 185\.00/);
   assert.equal(violation.path, "/Invoice/InvoiceLine[1]/LineExtensionAmount");
 });

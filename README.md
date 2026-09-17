@@ -75,9 +75,12 @@ passing, so the report says what was actually looked at.
 
 `BR-CO-15` looks like noise until a platform rejects your invoice and quotes it
 back at you. The identifiers here are the standard's own, so an error from this
-library and an error from the receiving end name the same thing. The wording of
-each message is this library's own; the normative text lives in EN 16931-1,
-which is published by CEN and is not reproduced here.
+library and an error from the receiving end name the same thing. Where EN 16931
+leaves an arithmetic rule to the syntax binding rather than stating it itself —
+the line net amount, an allowance percentage against its base amount — the
+Peppol identifier is used, because that is the one a receiver will quote. The
+wording of each message is this library's own; the normative text lives in
+EN 16931-1, which is published by CEN and is not reproduced here.
 
 ## Amounts are exact
 
@@ -105,6 +108,35 @@ reconcile(invoice);           // every arithmetic check, passing or not
 business term it constrains (`BT-109`), so an amount can be shown with the rule
 it answers to rather than only with what failed.
 
+## A discount belongs somewhere
+
+An allowance either belongs to the invoice or to one line, and the two travel
+differently. A document level allowance (BG-20) carries its own VAT category and
+rate, is summed into BT-107, and moves the taxable amount of the breakdown group
+it names. A line level allowance (BG-27) carries no category — it follows the
+line's — and reaches the totals only through the line net amount BT-131, which
+is quantity × price, less the line's allowances and plus its charges.
+
+```ts
+const line = {
+  id: "1", name: "Consulting", quantity: 10, netPrice: "20.00",
+  netAmount: "185.00",                       // 200.00 - 20.00 + 5.00
+  vatCategory: "S", vatRate: "23",
+  allowances: [
+    { amount: "20.00", baseAmount: "200.00", percentage: "10",
+      reason: "Volume discount", reasonCode: "95" },
+  ],
+  charges: [{ amount: "5.00", reason: "Packaging" }],
+};
+```
+
+Putting that discount into BT-107 as well counts it twice; leaving it out of
+BT-131 hides it from the totals and the VAT breakdown both. Either way the
+invoice adds up against itself and still fails at the platform, so both are
+checked. So is a percentage against the base amount it claims to be a percentage
+of: a receiver that recomputes one from the other has to arrive at the amount
+the document states.
+
 ## What it does not do
 
 **It is not a Peppol access point.** It writes the document; getting it to the
@@ -126,15 +158,11 @@ of what is missing is below rather than implied.
 
 | | |
 |---|---|
-| Model | EN 16931 semantic terms: parties, lines, document level allowances and charges, VAT breakdown, totals |
-| Rules | presence (BR-01…BR-16), allowances and charges (BR-31…BR-38), arithmetic (BR-CO-10…BR-CO-17), breakdown against the lines (BR-45), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18) |
+| Model | EN 16931 semantic terms: parties, lines, document and line level allowances and charges, VAT breakdown, totals |
+| Rules | presence (BR-01…BR-16), document level allowances and charges (BR-31…BR-38), line level ones (BR-41…BR-44), percentage against base amount (PEPPOL-EN16931-R040…R042), line net amount (PEPPOL-EN16931-R120), arithmetic (BR-CO-10…BR-CO-17), breakdown against the lines (BR-45), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18) |
 | Report | every rule evaluated, its outcome, and the element path it looked at |
 | Output | UBL 2.1 with the Peppol BIS Billing 3.0 customization |
-| Not yet | line level allowances and charges, credit notes, CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
-
-Line level allowances and charges are the remaining gap: a discount that belongs
-to one line has to be folded into that line's net amount before it gets here.
-That is a documented limit, not a silent one.
+| Not yet | credit notes, CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
 
 ## Install
 

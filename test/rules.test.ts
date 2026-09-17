@@ -87,7 +87,7 @@ test("a line amount that does not match quantity times price is caught", () => {
     }),
   );
   assert.equal(result.ok, false);
-  const violation = result.violations.find((v) => v.rule === "BR-CO-16-LINE")!;
+  const violation = result.violations.find((v) => v.rule === "PEPPOL-EN16931-R120")!;
   assert.match(violation.message, /2 × 100\.00 = 200\.00/);
   assert.equal(violation.at, "lines[0].netAmount");
   assert.equal(violation.path, "/Invoice/InvoiceLine[1]/LineExtensionAmount");
