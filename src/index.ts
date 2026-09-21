@@ -21,7 +21,14 @@ export type {
 
 export { Decimal, InvalidNumber, sum } from "./decimal.ts";
 
-export { ublPath, type PathContext } from "./paths.ts";
+export {
+  CREDIT_NOTE_TYPE_CODES,
+  isCreditNote,
+  syntaxFor,
+  ublPath,
+  type PathContext,
+  type Syntax,
+} from "./paths.ts";
 
 export {
   validate,

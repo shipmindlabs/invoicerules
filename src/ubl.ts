@@ -1,6 +1,11 @@
 /**
- * Writing the invoice as UBL 2.1, the syntax Peppol carries and Belgium
- * mandates from January 2026.
+ * Writing the document as UBL 2.1 — an Invoice or a CreditNote, the syntax
+ * Peppol carries and Belgium mandates from January 2026.
+ *
+ * One mapping writes both. The document type code decides the root element, the
+ * line element and the quantity element; parties, allowances and charges, the
+ * VAT breakdown and the totals are the same document either way, so a credit
+ * note is a type code rather than a second implementation.
  *
  * Writing only. Reading UBL means an XML parser, and Node has none in its
  * standard library — so a reader would either drag in a dependency or ship a
@@ -8,6 +13,7 @@
  * release schedule. It is listed as missing rather than half-built.
  */
 
+import { syntaxFor } from "./paths.ts";
 import { validate } from "./rules.ts";
 import type { AllowanceCharge, Invoice, LineAllowanceCharge, Party, VatBreakdown } from "./model.ts";
 
@@ -45,6 +51,7 @@ export function toUBL(invoice: Invoice, options: UblOptions = {}): string {
     if (!result.ok) throw new InvalidInvoice(result.fatal);
   }
 
+  const syntax = syntaxFor(invoice);
   const currency = invoice.currency;
   const totals = invoice.totals;
   const adjustments = [
@@ -56,9 +63,9 @@ export function toUBL(invoice: Invoice, options: UblOptions = {}): string {
       ...(line.allowances ?? []).map((item) => allowanceCharge(item, false, currency, "    ")),
       ...(line.charges ?? []).map((item) => allowanceCharge(item, true, currency, "    ")),
     ];
-    return `  <cac:InvoiceLine>
+    return `  <cac:${syntax.line}>
     <cbc:ID>${esc(line.id)}</cbc:ID>
-    <cbc:InvoicedQuantity unitCode="C62">${esc(String(line.quantity))}</cbc:InvoicedQuantity>
+    <cbc:${syntax.quantity} unitCode="C62">${esc(String(line.quantity))}</cbc:${syntax.quantity}>
     <cbc:LineExtensionAmount currencyID="${esc(currency)}">${esc(line.netAmount)}</cbc:LineExtensionAmount>
 ${lineAdjustments.length > 0 ? lineAdjustments.join("\n") + "\n" : ""}    <cac:Item>
       <cbc:Name>${esc(line.name)}</cbc:Name>
@@ -71,26 +78,40 @@ ${lineAdjustments.length > 0 ? lineAdjustments.join("\n") + "\n" : ""}    <cac:I
     <cac:Price>
       <cbc:PriceAmount currencyID="${esc(currency)}">${esc(line.netPrice)}</cbc:PriceAmount>
     </cac:Price>
-  </cac:InvoiceLine>`;
+  </cac:${syntax.line}>`;
   });
 
+  // A credit note has no DueDate element: UBL carries BT-9 in PaymentMeans
+  // there, which this library does not model.
+  const dueDate =
+    invoice.dueDate && syntax.dueDate
+      ? `  <cbc:${syntax.dueDate}>${esc(invoice.dueDate)}</cbc:${syntax.dueDate}>\n`
+      : "";
+  const orderReference = invoice.purchaseOrderReference
+    ? `  <cac:OrderReference><cbc:ID>${esc(invoice.purchaseOrderReference)}</cbc:ID></cac:OrderReference>\n`
+    : "";
+  const paymentTerms = invoice.paymentTerms
+    ? `  <cac:PaymentTerms><cbc:Note>${esc(invoice.paymentTerms)}</cbc:Note></cac:PaymentTerms>\n`
+    : "";
+  const continuation = " ".repeat(syntax.root.length + 2);
+
   return `<?xml version="1.0" encoding="UTF-8"?>
-<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
-         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
-         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+<${syntax.root} xmlns="${syntax.namespace}"
+${continuation}xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+${continuation}xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
   <cbc:CustomizationID>${esc(options.customizationId ?? PEPPOL_BIS_3)}</cbc:CustomizationID>
   <cbc:ProfileID>${esc(options.profileId ?? PEPPOL_PROFILE)}</cbc:ProfileID>
   <cbc:ID>${esc(invoice.id)}</cbc:ID>
   <cbc:IssueDate>${esc(invoice.issueDate)}</cbc:IssueDate>
-${invoice.dueDate ? `  <cbc:DueDate>${esc(invoice.dueDate)}</cbc:DueDate>\n` : ""}  <cbc:InvoiceTypeCode>${esc(invoice.typeCode)}</cbc:InvoiceTypeCode>
+${dueDate}  <cbc:${syntax.typeCode}>${esc(invoice.typeCode)}</cbc:${syntax.typeCode}>
   <cbc:DocumentCurrencyCode>${esc(currency)}</cbc:DocumentCurrencyCode>
-${invoice.purchaseOrderReference ? `  <cac:OrderReference><cbc:ID>${esc(invoice.purchaseOrderReference)}</cbc:ID></cac:OrderReference>\n` : ""}  <cac:AccountingSupplierParty>
+${orderReference}  <cac:AccountingSupplierParty>
 ${party(invoice.seller)}
   </cac:AccountingSupplierParty>
   <cac:AccountingCustomerParty>
 ${party(invoice.buyer)}
   </cac:AccountingCustomerParty>
-${invoice.paymentTerms ? `  <cac:PaymentTerms><cbc:Note>${esc(invoice.paymentTerms)}</cbc:Note></cac:PaymentTerms>\n` : ""}${adjustments.length > 0 ? adjustments.join("\n") + "\n" : ""}  <cac:TaxTotal>
+${paymentTerms}${adjustments.length > 0 ? adjustments.join("\n") + "\n" : ""}  <cac:TaxTotal>
     <cbc:TaxAmount currencyID="${esc(currency)}">${esc(totals.taxTotal)}</cbc:TaxAmount>
 ${invoice.vatBreakdown.map((group) => subtotal(group, currency)).join("\n")}
   </cac:TaxTotal>
@@ -101,7 +122,7 @@ ${invoice.vatBreakdown.map((group) => subtotal(group, currency)).join("\n")}
 ${totals.allowanceTotal ? `    <cbc:AllowanceTotalAmount currencyID="${esc(currency)}">${esc(totals.allowanceTotal)}</cbc:AllowanceTotalAmount>\n` : ""}${totals.chargeTotal ? `    <cbc:ChargeTotalAmount currencyID="${esc(currency)}">${esc(totals.chargeTotal)}</cbc:ChargeTotalAmount>\n` : ""}${totals.prepaid ? `    <cbc:PrepaidAmount currencyID="${esc(currency)}">${esc(totals.prepaid)}</cbc:PrepaidAmount>\n` : ""}${totals.rounding ? `    <cbc:PayableRoundingAmount currencyID="${esc(currency)}">${esc(totals.rounding)}</cbc:PayableRoundingAmount>\n` : ""}    <cbc:PayableAmount currencyID="${esc(currency)}">${esc(totals.payable)}</cbc:PayableAmount>
   </cac:LegalMonetaryTotal>
 ${lines.join("\n")}
-</Invoice>
+</${syntax.root}>
 `;
 }
 
