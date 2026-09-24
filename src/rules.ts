@@ -10,19 +10,21 @@
  *
  * Every rule that runs is reported, passing or not, against the element it
  * looked at: "invalid" is not something anyone can act on, and neither is a
- * list of failures that hides what was never checked.
+ * list of failures that hides what was never checked. The same rules run over a
+ * credit note, and the elements they name are the credit note's own.
  *
  * Rule identifiers (BR-*, BR-CO-*, BR-S-*) are the standard's own, because they
  * are what the other side's rejection message will quote; PEPPOL-EN16931-R0xx
  * are Peppol BIS Billing 3.0's, which apply because that is the customization
- * this library writes. The wording of each check is this library's own; the
- * normative text lives in EN 16931-1, which is published by CEN and not
- * reproduced here.
+ * this library writes. One identifier is this library's own and is prefixed so
+ * it cannot be mistaken for one a receiver will quote back. The wording of each
+ * check is this library's own; the normative text lives in EN 16931-1, which is
+ * published by CEN and not reproduced here.
  */
 
 import { Decimal } from "./decimal.ts";
 import type { AllowanceCharge, Invoice, Line, LineAllowanceCharge, VatCategory } from "./model.ts";
-import { ublPath } from "./paths.ts";
+import { isCreditNote, ublPath } from "./paths.ts";
 import { TOLERANCE, groupKey, readTotals, reconcile } from "./vat.ts";
 
 export type Severity = "fatal" | "warning";
@@ -74,14 +76,23 @@ type AdjustmentRules = {
 /** Categories that charge no VAT and therefore need a reason. */
 const NEEDS_EXEMPTION_REASON: ReadonlySet<VatCategory> = new Set(["Z", "E", "AE", "K", "G", "O"]);
 
+/**
+ * Not an identifier any validator will quote: a document states its amounts
+ * positively, and a refund is a credit note (BT-3) rather than an invoice with
+ * a minus sign in front of it. The prefix says as much.
+ */
+const POSITIVE_AMOUNTS = "INVOICERULES-CN-01";
+
 const ZERO_RATE = Decimal.parse("0");
 const ZERO = Decimal.zero(2);
 
 export function validate(invoice: Invoice): Result {
   const coverage: RuleOutcome[] = [];
+  const creditNote = isCreditNote(invoice);
   const context = {
     allowances: invoice.allowances?.length ?? 0,
     lineAllowances: invoice.lines.map((line) => line.allowances?.length ?? 0),
+    creditNote,
   };
 
   const record = (rule: string, outcome: Outcome, message: string, at?: string): void => {
@@ -96,6 +107,17 @@ export function validate(invoice: Invoice): Result {
   const check: Check = (rule, ok, at, message) => record(rule, ok ? "pass" : "fail", message, at);
   const fail: Report = (rule, message, at) => record(rule, "fail", message, at);
   const warn: Report = (rule, message, at) => record(rule, "warning", message, at);
+
+  // The direction of the money is the document type code, not the sign of the
+  // amounts. A receiver that reads the sign instead of the code books the same
+  // money twice, so a negative amount is refused in either document.
+  const notNegative = (at: string, what: string, amount: Decimal | undefined): void => {
+    if (!amount) return;
+    check(POSITIVE_AMOUNTS, amount.compare(ZERO) >= 0, at,
+      creditNote
+        ? `${what} ${amount.toFixed()} is negative; a credit note states what it credits as a positive amount`
+        : `${what} ${amount.toFixed()} is negative; a refund is a credit note (type code 381), not an invoice with a minus sign`);
+  };
 
   // Presence rules. Dull, and the majority of real rejections.
   check("BR-01", !!invoice.id?.trim(), "id", "the invoice has no number");
@@ -124,6 +146,15 @@ export function validate(invoice: Invoice): Result {
     check("BR-21", !!line.id?.trim(), `${at}.id`, "the line has no identifier");
     check("BR-25", !!line.name?.trim(), `${at}.name`, "the line has no item name");
     check("BR-CO-04", !!line.vatCategory, `${at}.vatCategory`, "the line has no VAT category");
+
+    // BT-146 is the one amount the standard names outright as never negative.
+    const netPrice = safeDecimal(line.netPrice);
+    if (netPrice) {
+      check("BR-27", netPrice.compare(ZERO) >= 0, `${at}.netPrice`,
+        `the item net price ${netPrice.toFixed()} is negative`);
+    }
+    notNegative(`${at}.quantity`, "the line quantity", safeDecimal(String(line.quantity)));
+    notNegative(`${at}.netAmount`, "the line amount", safeDecimal(line.netAmount));
 
     validateAdjustments(line.allowances ?? [], `${at}.allowances`, "line allowance",
       { amount: "BR-41", reason: "BR-42" }, check);
@@ -154,8 +185,19 @@ export function validate(invoice: Invoice): Result {
     { amount: "BR-36", category: "BR-37", reason: "BR-38" }, check);
 
   validateVat(invoice, check, fail, warn);
-  check("BR-12", !!readTotals(invoice.totals), "totals",
-    "one of the invoice totals is missing or not a number");
+  invoice.vatBreakdown.forEach((group, index) =>
+    notNegative(`vatBreakdown[${index}].taxableAmount`, "the taxable amount",
+      safeDecimal(group.taxableAmount)));
+
+  const totals = readTotals(invoice.totals);
+  check("BR-12", !!totals, "totals", "one of the invoice totals is missing or not a number");
+  if (totals) {
+    // BT-114 is negative by design when the amount due rounds down, and BT-115
+    // goes negative when more was prepaid than was owed. Neither is a refund.
+    notNegative("totals.lineTotal", "the line total", totals.lineTotal);
+    notNegative("totals.taxExclusive", "the total without VAT", totals.taxExclusive);
+    notNegative("totals.taxInclusive", "the total with VAT", totals.taxInclusive);
+  }
 
   // The arithmetic, each comparison reported under the rule it comes from.
   for (const arithmetic of reconcile(invoice)) {
@@ -207,8 +249,11 @@ function validateAdjustments(
 ): void {
   items.forEach((item, index) => {
     const at = `${list}[${index}]`;
-    check(rules.amount, !!safeDecimal(item.amount), `${at}.amount`,
-      `the ${noun} has no amount, or it is not a number`);
+    // Which list it is in decides whether it is taken off or added on, so a
+    // negative amount here reverses the sign a second time.
+    const amount = safeDecimal(item.amount);
+    check(rules.amount, !!amount && amount.compare(ZERO) >= 0, `${at}.amount`,
+      `the ${noun} has no amount, or it is not a positive number`);
     if (rules.category) {
       check(rules.category, "vatCategory" in item && !!item.vatCategory, `${at}.vatCategory`,
         `the ${noun} has no VAT category`);

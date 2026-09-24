@@ -82,6 +82,11 @@ Peppol identifier is used, because that is the one a receiver will quote. The
 wording of each message is this library's own; the normative text lives in
 EN 16931-1, which is published by CEN and is not reproduced here.
 
+One check is not the standard's: that a document states its amounts positively
+and that a refund is issued as a credit note. It is reported as
+`INVOICERULES-CN-01`, prefixed so it cannot be mistaken for an identifier a
+receiver will quote back.
+
 ## Amounts are exact
 
 Money is not a float. `0.1 + 0.2` is how a totals check fails on an invoice that
@@ -137,6 +142,31 @@ checked. So is a percentage against the base amount it claims to be a percentage
 of: a receiver that recomputes one from the other has to arrive at the amount
 the document states.
 
+## A credit note is a type code, not a minus sign
+
+A refund is a UBL CreditNote with a credit note type code (BT-3: 381, and the
+rest of UNCL1001), and its amounts are stated positively — the document type
+carries the direction. One mapping writes both documents and one rule set checks
+both; the type code decides the root element, the line element and the quantity
+element.
+
+```ts
+const creditNote = { ...invoice, id: "KOR-2026-0001", typeCode: "381" };
+
+toUBL(creditNote); // <CreditNote>, CreditNoteLine, CreditedQuantity
+```
+
+The report follows the document: a line amount that does not add up is
+`/CreditNote/CreditNoteLine[1]/LineExtensionAmount`, which is the path the
+receiver will quote, not one into a document it never got.
+
+An invoice with negative amounts is the same money booked twice by a receiver
+that reads the sign instead of the code, so a negative line amount, taxable
+amount or total is refused under `INVOICERULES-CN-01`, and a negative item net
+price under BR-27. The payable amount is left alone: BT-115 is legitimately
+negative when more was prepaid than was owed. UBL carries the payment due date
+(BT-9) on an invoice only, so a credit note written here has no DueDate element.
+
 ## What it does not do
 
 **It is not a Peppol access point.** It writes the document; getting it to the
@@ -159,10 +189,10 @@ of what is missing is below rather than implied.
 | | |
 |---|---|
 | Model | EN 16931 semantic terms: parties, lines, document and line level allowances and charges, VAT breakdown, totals |
-| Rules | presence (BR-01…BR-16), document level allowances and charges (BR-31…BR-38), line level ones (BR-41…BR-44), percentage against base amount (PEPPOL-EN16931-R040…R042), line net amount (PEPPOL-EN16931-R120), arithmetic (BR-CO-10…BR-CO-17), breakdown against the lines (BR-45), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18) |
+| Rules | presence (BR-01…BR-16), document level allowances and charges (BR-31…BR-38), line level ones (BR-41…BR-44), percentage against base amount (PEPPOL-EN16931-R040…R042), line net amount (PEPPOL-EN16931-R120), arithmetic (BR-CO-10…BR-CO-17), breakdown against the lines (BR-45), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18), item net price (BR-27), amounts stated positively (INVOICERULES-CN-01) |
 | Report | every rule evaluated, its outcome, and the element path it looked at |
-| Output | UBL 2.1 with the Peppol BIS Billing 3.0 customization |
-| Not yet | credit notes, CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
+| Output | UBL 2.1 Invoice or CreditNote with the Peppol BIS Billing 3.0 customization |
+| Not yet | the reference to the invoice a credit note corrects (BG-3), CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
 
 ## Install
 
