@@ -16,10 +16,10 @@
  * Rule identifiers (BR-*, BR-CO-*, BR-S-*) are the standard's own, because they
  * are what the other side's rejection message will quote; PEPPOL-EN16931-R0xx
  * are Peppol BIS Billing 3.0's, which apply because that is the customization
- * this library writes. One identifier is this library's own and is prefixed so
- * it cannot be mistaken for one a receiver will quote back. The wording of each
- * check is this library's own; the normative text lives in EN 16931-1, which is
- * published by CEN and not reproduced here.
+ * this library writes. Three identifiers are this library's own and are
+ * prefixed so they cannot be mistaken for ones a receiver will quote back. The
+ * wording of each check is this library's own; the normative text lives in
+ * EN 16931-1, which is published by CEN and not reproduced here.
  */
 
 import { Decimal } from "./decimal.ts";
@@ -73,8 +73,54 @@ type AdjustmentRules = {
   readonly category?: string;
 };
 
+/** One check a payment instruction is not put through here. */
+export type UncheckedRule = {
+  /** The identifier a receiver would quote, or the code list that would decide it. */
+  readonly rule: string;
+  /** What it is about, in the terms the standard uses. */
+  readonly about: string;
+  /** Why it is not checked here. */
+  readonly note: string;
+};
+
+/**
+ * What a payment instruction is not checked for, named rather than implied. A
+ * library that says "payment means supported" and means four rules out of ten
+ * is worse than one that lists the six.
+ */
+export const UNCHECKED_PAYMENT_RULES: readonly UncheckedRule[] = [
+  {
+    rule: "BR-CO-25",
+    about: "a positive amount due needs either a due date (BT-9) or payment terms (BT-20)",
+    note: "both terms are modelled and written; neither is required yet",
+  },
+  {
+    rule: "BR-51",
+    about: "the last digits of a payment card primary account number (BT-87)",
+    note: "payment card information (BG-18) is not modelled",
+  },
+  {
+    rule: "PEPPOL-EN16931-R061",
+    about: "a direct debit needs a mandate reference (BT-89)",
+    note: "direct debit (BG-19), its creditor identifier (BT-90) and debited account (BT-91) are not modelled",
+  },
+  {
+    rule: "UNCL4461",
+    about: "the payment means code (BT-81) is one the code list has",
+    note: "the code is required and read — 30, 31 and 58 mean a credit transfer — but not checked against the list",
+  },
+  {
+    rule: "ISO 13616",
+    about: "an account identifier (BT-84) that is not an IBAN",
+    note: "check digits are verified where the identifier is in IBAN shape; national account numbers are left alone rather than guessed at",
+  },
+];
+
 /** Categories that charge no VAT and therefore need a reason. */
 const NEEDS_EXEMPTION_REASON: ReadonlySet<VatCategory> = new Set(["Z", "E", "AE", "K", "G", "O"]);
+
+/** UNCL4461 codes that mean a credit transfer, which is what BR-61 turns on. */
+const CREDIT_TRANSFER_CODES: ReadonlySet<string> = new Set(["30", "31", "58"]);
 
 /**
  * Not an identifier any validator will quote: a document states its amounts
@@ -82,6 +128,13 @@ const NEEDS_EXEMPTION_REASON: ReadonlySet<VatCategory> = new Set(["Z", "E", "AE"
  * a minus sign in front of it. The prefix says as much.
  */
 const POSITIVE_AMOUNTS = "INVOICERULES-CN-01";
+
+/** Also this library's own: a due date that is a date, is not before the issue
+ * date, and has an element to be written into. */
+const DUE_DATE = "INVOICERULES-DUE-01";
+
+/** And this one: the check digits of an account identifier in IBAN shape. */
+const IBAN_CHECK_DIGITS = "INVOICERULES-IBAN-01";
 
 const ZERO_RATE = Decimal.parse("0");
 const ZERO = Decimal.zero(2);
@@ -140,6 +193,8 @@ export function validate(invoice: Invoice): Result {
     check("BR-CO-09", /^[A-Z]{2}/.test(sellerVat), "seller.identification.vatId",
       `the seller's VAT identifier "${sellerVat}" does not start with a country code`);
   }
+
+  validatePayment(invoice, creditNote, check, fail, warn);
 
   invoice.lines.forEach((line, index) => {
     const at = `lines[${index}]`;
@@ -223,6 +278,86 @@ function asViolation(entry: RuleOutcome): Violation {
     at: entry.at,
     path: entry.path,
   };
+}
+
+/**
+ * When it is due, who is paid and how. The means code decides the rest: a
+ * credit transfer with no account identifier is an invoice nobody can pay, and
+ * an IBAN with a transposed pair is money that arrives somewhere else while the
+ * document stays structurally perfect.
+ */
+function validatePayment(
+  invoice: Invoice,
+  creditNote: boolean,
+  check: Check,
+  fail: Report,
+  warn: Report,
+): void {
+  const instructions = invoice.paymentMeans ?? [];
+
+  if (invoice.dueDate !== undefined) {
+    if (!isDate(invoice.dueDate)) {
+      fail(DUE_DATE, `the due date "${invoice.dueDate}" is not a date`, "dueDate");
+    } else if (isDate(invoice.issueDate)) {
+      check(DUE_DATE, invoice.dueDate >= invoice.issueDate, "dueDate",
+        `the due date ${invoice.dueDate} is before the issue date ${invoice.issueDate}`);
+    }
+    // UBL keeps a credit note's BT-9 inside the payment instruction, so without
+    // one there is nowhere to write it and the date is silently lost.
+    if (creditNote && instructions.length === 0) {
+      warn(DUE_DATE,
+        "a credit note carries its due date inside a payment instruction (BG-16); with none, the due date will not be written",
+        "dueDate");
+    }
+  }
+
+  if (invoice.payee) {
+    check("BR-17", !!invoice.payee.name?.trim(), "payee.name",
+      "the invoice names a payee other than the seller but gives it no name");
+  }
+
+  instructions.forEach((means, index) => {
+    const at = `paymentMeans[${index}]`;
+    const code = means.typeCode?.trim() ?? "";
+    check("BR-49", !!code, `${at}.typeCode`,
+      "the payment instruction gives no payment means code (BT-81)");
+
+    const account = means.creditTransfer?.accountId?.trim();
+    if (means.creditTransfer) {
+      check("BR-50", !!account, `${at}.creditTransfer.accountId`,
+        "the credit transfer names no account for the money to go to (BT-84)");
+    }
+    if (CREDIT_TRANSFER_CODES.has(code)) {
+      check("BR-61", !!account, `${at}.creditTransfer.accountId`,
+        `payment means ${code} is a credit transfer, so the account the money goes to (BT-84) has to be given`);
+    }
+    if (account && looksLikeIban(account)) {
+      check(IBAN_CHECK_DIGITS, ibanChecksumHolds(account), `${at}.creditTransfer.accountId`,
+        `the account identifier "${account}" is in IBAN shape but its check digits do not hold`);
+    }
+  });
+}
+
+/** Two letters, two check digits, then the account. Anything else is not an IBAN. */
+function looksLikeIban(value: string): boolean {
+  return /^[A-Z]{2}\d{2}[A-Z0-9]+$/.test(compact(value));
+}
+
+/** ISO 7064 mod 97-10: the first four characters move to the end, letters become numbers. */
+function ibanChecksumHolds(value: string): boolean {
+  const account = compact(value);
+  if (account.length < 15 || account.length > 34) return false;
+
+  let remainder = 0;
+  for (const character of account.slice(4) + account.slice(0, 4)) {
+    const digits = /[A-Z]/.test(character) ? String(character.charCodeAt(0) - 55) : character;
+    for (const digit of digits) remainder = (remainder * 10 + Number(digit)) % 97;
+  }
+  return remainder === 1;
+}
+
+function compact(value: string): string {
+  return value.replace(/\s+/g, "").toUpperCase();
 }
 
 /** BT-131: quantity × price, less the line's own allowances and plus its charges. */

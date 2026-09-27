@@ -46,7 +46,7 @@ export type Syntax = {
   readonly line: string;
   readonly typeCode: string;
   readonly quantity: string;
-  /** Absent on a credit note: UBL carries BT-9 on an invoice only. */
+  /** The root element BT-9 has on an invoice. A credit note keeps it inside BG-16. */
   readonly dueDate?: string;
 };
 
@@ -86,9 +86,14 @@ function tables(syntax: Syntax): Tables {
     fixed: {
       id: `${root}/ID`,
       issueDate: `${root}/IssueDate`,
-      ...(syntax.dueDate ? { dueDate: `${root}/${syntax.dueDate}` } : {}),
+      // BT-9 is a root element on an invoice and sits inside the first payment
+      // instruction on a credit note, so one model field has two elements.
+      dueDate: syntax.dueDate
+        ? `${root}/${syntax.dueDate}`
+        : `${root}/PaymentMeans[1]/PaymentDueDate`,
       typeCode: `${root}/${syntax.typeCode}`,
       currency: `${root}/DocumentCurrencyCode`,
+      paymentMeans: `${root}/PaymentMeans`,
       paymentTerms: `${root}/PaymentTerms/Note`,
       purchaseOrderReference: `${root}/OrderReference/ID`,
       "seller.name": `${supplier}/PartyLegalEntity/RegistrationName`,
@@ -99,6 +104,10 @@ function tables(syntax: Syntax): Tables {
       "buyer.address.countryCode": `${customer}/PostalAddress/Country/IdentificationCode`,
       "buyer.identification.vatId": `${customer}/PartyTaxScheme/CompanyID`,
       "buyer.identification.legalId": `${customer}/PartyLegalEntity/CompanyID`,
+      payee: `${root}/PayeeParty`,
+      "payee.name": `${root}/PayeeParty/PartyName/Name`,
+      "payee.id": `${root}/PayeeParty/PartyIdentification/ID`,
+      "payee.legalId": `${root}/PayeeParty/PartyLegalEntity/CompanyID`,
       lines: `${root}/${syntax.line}`,
       allowances: `${root}/AllowanceCharge`,
       charges: `${root}/AllowanceCharge`,
@@ -136,6 +145,17 @@ const SUBTOTAL_FIELDS: Record<string, string> = {
   taxAmount: "/TaxAmount",
   exemptionReason: "/TaxCategory/TaxExemptionReason",
   exemptionReasonCode: "/TaxCategory/TaxExemptionReasonCode",
+};
+
+/** BT-82 is an attribute rather than an element, which is how a receiver quotes it. */
+const PAYMENT_MEANS_FIELDS: Record<string, string> = {
+  typeCode: "/PaymentMeansCode",
+  name: "/PaymentMeansCode/@name",
+  remittanceInformation: "/PaymentID",
+  creditTransfer: "/PayeeFinancialAccount",
+  "creditTransfer.accountId": "/PayeeFinancialAccount/ID",
+  "creditTransfer.accountName": "/PayeeFinancialAccount/Name",
+  "creditTransfer.bic": "/PayeeFinancialAccount/FinancialInstitutionBranch/ID",
 };
 
 const ADJUSTMENT_FIELDS: Record<string, string> = {
@@ -200,7 +220,8 @@ export function ublPath(
     return element(base, LINE_ADJUSTMENT_FIELDS, field);
   }
 
-  const parsed = /^([a-zA-Z]+)\[(\d+)\](?:\.([a-zA-Z]+))?$/.exec(at);
+  // The field part can itself be nested: a payment instruction holds an account.
+  const parsed = /^([a-zA-Z]+)\[(\d+)\](?:\.([a-zA-Z.]+))?$/.exec(at);
   if (!parsed) return undefined;
   const [, collection, index, field] = parsed;
   const position = Number(index) + 1;
@@ -210,6 +231,8 @@ export function ublPath(
       return element(`${root}/${syntax.line}[${position}]`, line, field);
     case "vatBreakdown":
       return element(`${root}/TaxTotal/TaxSubtotal[${position}]`, SUBTOTAL_FIELDS, field);
+    case "paymentMeans":
+      return element(`${root}/PaymentMeans[${position}]`, PAYMENT_MEANS_FIELDS, field);
     case "allowances":
       return element(`${root}/AllowanceCharge[${position}]`, ADJUSTMENT_FIELDS, field);
     case "charges":

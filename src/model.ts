@@ -34,6 +34,45 @@ export type Party = {
 };
 
 /**
+ * BG-10: who receives the money, when that is not the seller. A factor or a
+ * parent company is named here rather than in place of the seller: the seller
+ * is who supplied, the payee is only who is paid.
+ */
+export type Payee = {
+  /** BT-59: the payee's name. */
+  readonly name: string;
+  /** BT-60: the payee's identifier. */
+  readonly id?: string;
+  /** BT-61: the payee's legal registration identifier. */
+  readonly legalId?: string;
+};
+
+/** BG-17: the account a credit transfer goes to. */
+export type CreditTransfer = {
+  /** BT-84: the account identifier, an IBAN wherever the country has one. */
+  readonly accountId: string;
+  /** BT-85: the name the account is held under. */
+  readonly accountName?: string;
+  /** BT-86: BIC of the account's bank. */
+  readonly bic?: string;
+};
+
+/**
+ * BG-16: how the invoice is to be paid. The means code decides what else has to
+ * be there — a credit transfer without an account is an invoice nobody can pay.
+ */
+export type PaymentMeans = {
+  /** BT-81: UNCL4461 payment means code. 30 is a credit transfer. */
+  readonly typeCode: string;
+  /** BT-82: the same means in words. */
+  readonly name?: string;
+  /** BT-83: the reference the payer quotes, so the money can be matched back. */
+  readonly remittanceInformation?: string;
+  /** BG-17: the account, for a credit transfer. */
+  readonly creditTransfer?: CreditTransfer;
+};
+
+/**
  * UNCL5305 VAT category codes. The four that decide whether an invoice needs a
  * reason for charging no VAT.
  */
@@ -158,7 +197,7 @@ export type Invoice = {
   readonly id: string;
   /** BT-2: issue date, ISO yyyy-mm-dd. */
   readonly issueDate: string;
-  /** BT-9: due date. */
+  /** BT-9: due date. An invoice carries it at the root, a credit note inside BG-16. */
   readonly dueDate?: string;
   /** BT-3: UNCL1001 document type. 380 is a commercial invoice. */
   readonly typeCode: string;
@@ -166,6 +205,8 @@ export type Invoice = {
   readonly currency: string;
   readonly seller: Party;
   readonly buyer: Party;
+  /** BG-10: the payee, when the money does not go to the seller. */
+  readonly payee?: Payee;
   readonly lines: readonly Line[];
   /** BG-20: document level allowances. */
   readonly allowances?: readonly AllowanceCharge[];
@@ -173,6 +214,8 @@ export type Invoice = {
   readonly charges?: readonly AllowanceCharge[];
   readonly vatBreakdown: readonly VatBreakdown[];
   readonly totals: Totals;
+  /** BG-16: how it is to be paid. */
+  readonly paymentMeans?: readonly PaymentMeans[];
   /** BT-20: payment terms, in words. */
   readonly paymentTerms?: string;
   /** BT-13: the buyer's purchase order reference. */

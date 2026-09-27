@@ -9,11 +9,14 @@ export type {
   Address,
   AllowanceCharge,
   Amount,
+  CreditTransfer,
   Invoice,
   Line,
   LineAllowanceCharge,
   Party,
   PartyIdentification,
+  Payee,
+  PaymentMeans,
   Totals,
   VatBreakdown,
   VatCategory,
@@ -31,11 +34,13 @@ export {
 } from "./paths.ts";
 
 export {
+  UNCHECKED_PAYMENT_RULES,
   validate,
   type Outcome,
   type Result,
   type RuleOutcome,
   type Severity,
+  type UncheckedRule,
   type Violation,
 } from "./rules.ts";
 
