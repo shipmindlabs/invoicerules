@@ -82,10 +82,12 @@ Peppol identifier is used, because that is the one a receiver will quote. The
 wording of each message is this library's own; the normative text lives in
 EN 16931-1, which is published by CEN and is not reproduced here.
 
-One check is not the standard's: that a document states its amounts positively
-and that a refund is issued as a credit note. It is reported as
-`INVOICERULES-CN-01`, prefixed so it cannot be mistaken for an identifier a
-receiver will quote back.
+Three checks are not the standard's: that a document states its amounts
+positively and that a refund is issued as a credit note, that a due date is a
+date on or after the issue date, and that an account identifier in IBAN shape
+has check digits that hold. They are reported as `INVOICERULES-CN-01`,
+`INVOICERULES-DUE-01` and `INVOICERULES-IBAN-01`, prefixed so they cannot be
+mistaken for identifiers a receiver will quote back.
 
 ## Amounts are exact
 
@@ -142,6 +144,59 @@ checked. So is a percentage against the base amount it claims to be a percentage
 of: a receiver that recomputes one from the other has to arrive at the amount
 the document states.
 
+## Payment is a date, a party and an instruction
+
+An invoice that adds up and cannot be paid is still a failure. Three things
+decide whether it can be: when it is due (BT-9, or the terms in BT-20), who is
+paid when that is not the seller (BG-10), and how (BG-16).
+
+```ts
+const payable = {
+  ...invoice,
+  dueDate: "2026-09-15",
+  paymentTerms: "30 days net",
+  payee: { name: "Factor SA", id: "PL9999999999" },
+  paymentMeans: [
+    { typeCode: "30", name: "Credit transfer", remittanceInformation: "FV-2026-0042",
+      creditTransfer: { accountId: "PL61109010140000071219812874", bic: "WBKPPLPP" } },
+  ],
+};
+```
+
+The means code decides the rest. Every instruction needs one (BR-49) and one
+that names an account has to give it (BR-50); once the code says credit transfer
+— 30, 31 or 58 — the account the money goes to is required under BR-61, because
+a credit transfer with no BT-84 is an invoice nobody can pay. A payee is named
+beside the seller rather than in place of it, and naming one without a name
+fails BR-17: the seller is who supplied, the payee is only who is paid.
+
+Where the account identifier is in IBAN shape its check digits are verified. An
+IBAN with a transposed pair is money that arrives somewhere else while the
+document stays structurally perfect, and the mod 97-10 check costs nothing. A
+national account number that is not in IBAN shape is left alone rather than
+guessed at.
+
+The document carries all of it where a receiver reads it: `PayeeParty`,
+`PaymentMeans` with `PayeeFinancialAccount`, and `PaymentTerms/Note`.
+
+### What a payment instruction is not checked for
+
+Named rather than implied. A library that says "payment means supported" and
+means half the rules is worse than one that lists the half it leaves out.
+
+```ts
+import { UNCHECKED_PAYMENT_RULES } from "invoicerules";
+// each entry: { rule, about, note }
+```
+
+| | |
+|---|---|
+| `BR-CO-25` | a positive amount due needs a due date or payment terms — both are modelled and written, neither is required yet |
+| `BR-51` | the last digits of a payment card number: payment card information (BG-18) is not modelled |
+| `PEPPOL-EN16931-R061` | a direct debit needs a mandate reference: direct debit (BG-19) is not modelled |
+| `UNCL4461` | the payment means code is required and read, and not checked against the code list |
+| `ISO 13616` | an account identifier that is not in IBAN shape |
+
 ## A credit note is a type code, not a minus sign
 
 A refund is a UBL CreditNote with a credit note type code (BT-3: 381, and the
@@ -165,7 +220,10 @@ that reads the sign instead of the code, so a negative line amount, taxable
 amount or total is refused under `INVOICERULES-CN-01`, and a negative item net
 price under BR-27. The payable amount is left alone: BT-115 is legitimately
 negative when more was prepaid than was owed. UBL carries the payment due date
-(BT-9) on an invoice only, so a credit note written here has no DueDate element.
+(BT-9) as a root element on an invoice only, so on a credit note it is written
+inside the first payment instruction, as
+`/CreditNote/PaymentMeans[1]/PaymentDueDate` — and a credit note with a due date
+and no instruction at all is warned about rather than losing the date silently.
 
 ## What it does not do
 
@@ -188,11 +246,11 @@ of what is missing is below rather than implied.
 
 | | |
 |---|---|
-| Model | EN 16931 semantic terms: parties, lines, document and line level allowances and charges, VAT breakdown, totals |
-| Rules | presence (BR-01…BR-16), document level allowances and charges (BR-31…BR-38), line level ones (BR-41…BR-44), percentage against base amount (PEPPOL-EN16931-R040…R042), line net amount (PEPPOL-EN16931-R120), arithmetic (BR-CO-10…BR-CO-17), breakdown against the lines (BR-45), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18), item net price (BR-27), amounts stated positively (INVOICERULES-CN-01) |
+| Model | EN 16931 semantic terms: parties, lines, document and line level allowances and charges, VAT breakdown, totals, payee, payment means and terms |
+| Rules | presence (BR-01…BR-16), document level allowances and charges (BR-31…BR-38), line level ones (BR-41…BR-44), percentage against base amount (PEPPOL-EN16931-R040…R042), line net amount (PEPPOL-EN16931-R120), arithmetic (BR-CO-10…BR-CO-17), breakdown against the lines (BR-45), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18), item net price (BR-27), payee and payment means (BR-17, BR-49, BR-50, BR-61), amounts stated positively (INVOICERULES-CN-01), due date (INVOICERULES-DUE-01), IBAN check digits (INVOICERULES-IBAN-01) |
 | Report | every rule evaluated, its outcome, and the element path it looked at |
 | Output | UBL 2.1 Invoice or CreditNote with the Peppol BIS Billing 3.0 customization |
-| Not yet | the reference to the invoice a credit note corrects (BG-3), CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
+| Not yet | the reference to the invoice a credit note corrects (BG-3), payment card information (BG-18), direct debit (BG-19), CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
 
 ## Install
 

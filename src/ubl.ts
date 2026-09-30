@@ -15,7 +15,15 @@
 
 import { syntaxFor } from "./paths.ts";
 import { validate } from "./rules.ts";
-import type { AllowanceCharge, Invoice, LineAllowanceCharge, Party, VatBreakdown } from "./model.ts";
+import type {
+  AllowanceCharge,
+  Invoice,
+  LineAllowanceCharge,
+  Party,
+  Payee,
+  PaymentMeans,
+  VatBreakdown,
+} from "./model.ts";
 
 export class InvalidInvoice extends Error {
   readonly violations: readonly { rule: string; message: string }[];
@@ -81,12 +89,19 @@ ${lineAdjustments.length > 0 ? lineAdjustments.join("\n") + "\n" : ""}    <cac:I
   </cac:${syntax.line}>`;
   });
 
-  // A credit note has no DueDate element: UBL carries BT-9 in PaymentMeans
-  // there, which this library does not model.
   const dueDate =
     invoice.dueDate && syntax.dueDate
       ? `  <cbc:${syntax.dueDate}>${esc(invoice.dueDate)}</cbc:${syntax.dueDate}>\n`
       : "";
+  // A credit note has no DueDate element, so BT-9 goes where UBL keeps it
+  // there: inside the first payment instruction. With no instruction at all
+  // there is nowhere to write it, which the rules warn about.
+  const dueInInstruction = syntax.dueDate ? undefined : invoice.dueDate;
+  const instructions = (invoice.paymentMeans ?? []).map((means, index) =>
+    paymentMeans(means, index === 0 ? dueInInstruction : undefined),
+  );
+  const payee = invoice.payee ? payeeParty(invoice.payee) + "\n" : "";
+  const means = instructions.length > 0 ? instructions.join("\n") + "\n" : "";
   const orderReference = invoice.purchaseOrderReference
     ? `  <cac:OrderReference><cbc:ID>${esc(invoice.purchaseOrderReference)}</cbc:ID></cac:OrderReference>\n`
     : "";
@@ -111,7 +126,7 @@ ${party(invoice.seller)}
   <cac:AccountingCustomerParty>
 ${party(invoice.buyer)}
   </cac:AccountingCustomerParty>
-${paymentTerms}${adjustments.length > 0 ? adjustments.join("\n") + "\n" : ""}  <cac:TaxTotal>
+${payee}${means}${paymentTerms}${adjustments.length > 0 ? adjustments.join("\n") + "\n" : ""}  <cac:TaxTotal>
     <cbc:TaxAmount currencyID="${esc(currency)}">${esc(totals.taxTotal)}</cbc:TaxAmount>
 ${invoice.vatBreakdown.map((group) => subtotal(group, currency)).join("\n")}
   </cac:TaxTotal>
@@ -140,6 +155,51 @@ ${party.address.line1 ? `        <cbc:StreetName>${esc(party.address.line1)}</cb
         <cbc:RegistrationName>${esc(party.name)}</cbc:RegistrationName>
 ${party.identification?.legalId ? `        <cbc:CompanyID>${esc(party.identification.legalId)}</cbc:CompanyID>\n` : ""}      </cac:PartyLegalEntity>
     </cac:Party>`;
+}
+
+/**
+ * BG-10. The payee is named beside the seller rather than in place of it: the
+ * seller is who supplied, the payee is only who is paid.
+ */
+function payeeParty(payee: Payee): string {
+  const parts = ["  <cac:PayeeParty>"];
+  if (payee.id) {
+    parts.push(`    <cac:PartyIdentification><cbc:ID>${esc(payee.id)}</cbc:ID></cac:PartyIdentification>`);
+  }
+  parts.push(`    <cac:PartyName><cbc:Name>${esc(payee.name)}</cbc:Name></cac:PartyName>`);
+  if (payee.legalId) {
+    parts.push(`    <cac:PartyLegalEntity><cbc:CompanyID>${esc(payee.legalId)}</cbc:CompanyID></cac:PartyLegalEntity>`);
+  }
+  parts.push("  </cac:PayeeParty>");
+  return parts.join("\n");
+}
+
+/** BG-16, and BG-17 inside it. BT-82 is an attribute of the code, not an element. */
+function paymentMeans(means: PaymentMeans, dueDate: string | undefined): string {
+  const name = means.name ? ` name="${esc(means.name)}"` : "";
+  const parts = [
+    "  <cac:PaymentMeans>",
+    `    <cbc:PaymentMeansCode${name}>${esc(means.typeCode)}</cbc:PaymentMeansCode>`,
+  ];
+  if (dueDate) parts.push(`    <cbc:PaymentDueDate>${esc(dueDate)}</cbc:PaymentDueDate>`);
+  if (means.remittanceInformation) {
+    parts.push(`    <cbc:PaymentID>${esc(means.remittanceInformation)}</cbc:PaymentID>`);
+  }
+  const account = means.creditTransfer;
+  if (account) {
+    parts.push("    <cac:PayeeFinancialAccount>", `      <cbc:ID>${esc(account.accountId)}</cbc:ID>`);
+    if (account.accountName) parts.push(`      <cbc:Name>${esc(account.accountName)}</cbc:Name>`);
+    if (account.bic) {
+      parts.push(
+        "      <cac:FinancialInstitutionBranch>",
+        `        <cbc:ID>${esc(account.bic)}</cbc:ID>`,
+        "      </cac:FinancialInstitutionBranch>",
+      );
+    }
+    parts.push("    </cac:PayeeFinancialAccount>");
+  }
+  parts.push("  </cac:PaymentMeans>");
+  return parts.join("\n");
 }
 
 /**
