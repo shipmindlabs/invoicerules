@@ -14,6 +14,7 @@
   "scripts": {
     "test": "node --test test/*.test.ts",
     "demo": "node example/demo.ts",
+    "fixtures": "node test/fixtures/record.ts --write",
     "typecheck": "tsc --noEmit"
   },
   "keywords": ["en16931", "e-invoicing", "ubl", "peppol", "ksef", "vat"]
