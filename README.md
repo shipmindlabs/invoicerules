@@ -225,6 +225,133 @@ inside the first payment instruction, as
 `/CreditNote/PaymentMeans[1]/PaymentDueDate` — and a credit note with a due date
 and no instruction at all is warned about rather than losing the date silently.
 
+## The rule catalog
+
+Every rule below runs on every document, invoice or credit note, and appears in
+the coverage report whether it passes or not. The identifiers are the ones a
+receiver quotes: `BR-*`, `BR-CO-*` and `BR-S-*` come from EN 16931-1, the
+`PEPPOL-EN16931-R*` ones from the Peppol BIS Billing 3.0 rule list at
+https://docs.peppol.eu/poacc/billing/3.0/rules/, and `INVOICERULES-*` is this
+library's own. The second column is the business term the rule constrains, so a
+model field, a rule and a BT number all name the same thing.
+
+### Presence
+
+| Rule | Term | What it checks |
+|---|---|---|
+| BR-01 | BT-1 | the invoice has a number |
+| BR-02 | BT-2 | the issue date is present and is a date |
+| BR-03 | BT-3 | the document type code is given |
+| BR-04 | BT-5 | the currency is a three-letter ISO 4217 code |
+| BR-06 | BT-27 | the seller has a name |
+| BR-07 | BT-44 | the buyer has a name |
+| BR-09 | BT-40 | the seller's country is an ISO 3166-1 alpha-2 code |
+| BR-11 | BT-55 | the buyer's country is an ISO 3166-1 alpha-2 code |
+| BR-12 | BT-106…BT-115 | the totals are all present and all numbers |
+| BR-16 | BG-25 | the invoice has at least one line |
+| BR-CO-09 | BT-31 | the seller's VAT identifier starts with a country code |
+
+### Lines
+
+| Rule | Term | What it checks |
+|---|---|---|
+| BR-21 | BT-126 | the line has an identifier |
+| BR-25 | BT-153 | the line names what was sold |
+| BR-CO-04 | BT-151 | the line has a VAT category |
+| BR-27 | BT-146 | the item net price is not negative |
+| PEPPOL-EN16931-R120 | BT-131 | the line net amount is quantity × price, less the line's allowances and plus its charges |
+
+### Allowances and charges
+
+| Rule | Term | What it checks |
+|---|---|---|
+| BR-31 / BR-36 | BT-92 / BT-99 | a document level allowance or charge has an amount, and it is positive |
+| BR-32 / BR-37 | BT-95 / BT-102 | it names the VAT category it belongs to |
+| BR-33 / BR-38 | BT-97 / BT-104 | it gives a reason or a reason code |
+| BR-41 / BR-43 | BT-136 / BT-141 | a line level allowance or charge has an amount, and it is positive |
+| BR-42 / BR-44 | BT-139 / BT-144 | it gives a reason or a reason code |
+| PEPPOL-EN16931-R040 | BT-94 / BT-101 | the amount is the stated percentage of the stated base amount |
+| PEPPOL-EN16931-R041 | BT-93 / BT-100 | a percentage comes with a base amount to apply it to |
+| PEPPOL-EN16931-R042 | BT-94 / BT-101 | a base amount comes with a percentage of it |
+
+### VAT breakdown
+
+| Rule | Term | What it checks |
+|---|---|---|
+| BR-45 | BT-116 | the taxable amount of a group matches its lines, allowances and charges |
+| BR-CO-17 | BT-117 | the VAT of a group is its rate applied to its taxable amount |
+| BR-S-05 | BT-119 | a standard-rated group carries a rate above zero |
+| BR-S-08 | BT-116 | a standard-rated group's taxable and tax amounts are numbers |
+| BR-S-09 | BT-117 | the VAT of a standard-rated group, which is BR-CO-17 under the narrower name a validator reports |
+| BR-Z-05, BR-E-05, BR-AE-05, BR-K-05, BR-G-05, BR-O-05 | BT-119 | a group that charges no VAT carries a zero rate |
+| BR-Z-10, BR-E-10, BR-AE-10, BR-K-10, BR-G-10, BR-O-10 | BT-120 | it says why no VAT is charged |
+| BR-CO-18 | BG-23 | every category and rate used on a line, an allowance or a charge has a group; two groups sharing one is a warning |
+
+### Totals
+
+| Rule | Term | What it checks |
+|---|---|---|
+| BR-CO-10 | BT-106 | the line total is the sum of the line net amounts |
+| BR-CO-11 | BT-107 | the allowance total is the sum of the document level allowances |
+| BR-CO-12 | BT-108 | the charge total is the sum of the document level charges |
+| BR-CO-13 | BT-109 | the total without VAT is the line total, less allowances, plus charges |
+| BR-CO-14 | BT-110 | the VAT total is the sum of the breakdown |
+| BR-CO-15 | BT-112 | the total with VAT is the total without VAT plus the VAT total |
+| BR-CO-16 | BT-115 | the amount due is the total with VAT, less what was prepaid, plus rounding |
+
+### Payment
+
+| Rule | Term | What it checks |
+|---|---|---|
+| BR-17 | BT-59 | a payee named beside the seller has a name |
+| BR-49 | BT-81 | every payment instruction gives a payment means code |
+| BR-50 | BT-84 | an instruction that names an account gives its identifier |
+| BR-61 | BT-84 | a credit transfer — code 30, 31 or 58 — gives the account the money goes to |
+
+### Not the standard's
+
+| Rule | Term | What it checks |
+|---|---|---|
+| INVOICERULES-CN-01 | BT-129, BT-131, BT-116, BT-106, BT-109, BT-112 | amounts are stated positively; a refund is a credit note, not an invoice with a minus sign |
+| INVOICERULES-DUE-01 | BT-9 | the due date is a date, on or after the issue date, and has somewhere to be written |
+| INVOICERULES-IBAN-01 | BT-84 | an account identifier in IBAN shape has check digits that hold |
+
+## What is not checked
+
+The catalog above is the whole of it. These are the things a reader might
+reasonably expect from it and will not get — the payment instruction has its own
+list, further up.
+
+- **National rule extensions.** The Schematron a country layers on top of
+  EN 16931 is not here: Poland's KSeF and its FA(3) format, Italy's FatturaPA,
+  the French CTC rules, any national CIUS. A document that passes these checks
+  can still be refused by a platform that applies its own.
+- **Most of Peppol BIS Billing 3.0.** Four Peppol identifiers are implemented —
+  R040, R041, R042 and R120 — because EN 16931 leaves that arithmetic to the
+  syntax binding. The rest of the `PEPPOL-EN16931-R*` series is not: participant
+  identifier schemes and endpoint identifiers, which document type codes a
+  profile allows, the VATEX exemption reason code list, and the address and
+  contact rules.
+- **Code list membership.** The payment means code (BT-81) is read and not looked
+  up in UNCL4461; the document type code (BT-3) is matched only against the
+  UNCL1001 codes that make a document a credit note; the currency and country
+  codes are checked for shape rather than against ISO 4217 and ISO 3166-1; a VAT
+  category is constrained by the type in the model, not by a rule.
+- **Anything outside the document.** Whether a VAT identifier is registered in
+  VIES, whether the buyer can receive a Peppol document, whether the account in
+  BT-84 belongs to the seller. Only the IBAN check digits are verified, and only
+  where the identifier is in IBAN shape.
+- **The XML against the UBL 2.1 schema.** The output is written to the shape the
+  schema asks for; it is not validated against the XSD, which would mean a
+  parser.
+- **Rules about terms the model has no field for.** The reference to the invoice
+  a credit note corrects (BG-3), the invoice period (BG-14), delivery (BG-13),
+  the tax representative (BG-11), document references and attachments (BG-24),
+  item classification and standard identifiers, payment card information (BG-18)
+  and direct debit (BG-19). A rule that constrains one of those cannot fire.
+- **A difference smaller than a cent.** The arithmetic tolerates one cent on a
+  total, because rounding produces exactly that. Two is a failure.
+
 ## What it does not do
 
 **It is not a Peppol access point.** It writes the document; getting it to the
@@ -242,12 +369,12 @@ internally consistent and structurally valid.
 ## Status
 
 Early. The rules implemented are the ones that catch real rejections; the list
-of what is missing is below rather than implied.
+of what is missing is above rather than implied.
 
 | | |
 |---|---|
 | Model | EN 16931 semantic terms: parties, lines, document and line level allowances and charges, VAT breakdown, totals, payee, payment means and terms |
-| Rules | presence (BR-01…BR-16), document level allowances and charges (BR-31…BR-38), line level ones (BR-41…BR-44), percentage against base amount (PEPPOL-EN16931-R040…R042), line net amount (PEPPOL-EN16931-R120), arithmetic (BR-CO-10…BR-CO-17), breakdown against the lines (BR-45), standard rate (BR-S-05/08/09), zero-VAT reasons (BR-Z/E/AE/K/G/O-10), VAT identifier prefix (BR-CO-09), breakdown coverage (BR-CO-18), item net price (BR-27), payee and payment means (BR-17, BR-49, BR-50, BR-61), amounts stated positively (INVOICERULES-CN-01), due date (INVOICERULES-DUE-01), IBAN check digits (INVOICERULES-IBAN-01) |
+| Rules | the catalog above: presence, lines, allowances and charges, the VAT breakdown, the totals, payment, and three checks of this library's own |
 | Report | every rule evaluated, its outcome, and the element path it looked at |
 | Output | UBL 2.1 Invoice or CreditNote with the Peppol BIS Billing 3.0 customization |
 | Not yet | the reference to the invoice a credit note corrects (BG-3), payment card information (BG-18), direct debit (BG-19), CII and Factur-X syntax, KSeF's FA(3) format, national rule extensions, UBL reading |
