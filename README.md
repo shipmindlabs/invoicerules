@@ -82,6 +82,10 @@ Peppol identifier is used, because that is the one a receiver will quote. The
 wording of each message is this library's own; the normative text lives in
 EN 16931-1, which is published by CEN and is not reproduced here.
 
+The identifier is not always the category letter: the intra-community rules for
+category K are named `BR-IC-01..12`, so that is what this library reports for a
+K group, rather than a `BR-K-*` name the standard does not have.
+
 Three checks are not the standard's: that a document states its amounts
 positively and that a refund is issued as a credit note, that a due date is a
 date on or after the issue date, and that an account identifier in IBAN shape
@@ -283,9 +287,12 @@ model field, a rule and a BT number all name the same thing.
 | BR-S-05 | BT-119 | a standard-rated group carries a rate above zero |
 | BR-S-08 | BT-116 | a standard-rated group's taxable and tax amounts are numbers |
 | BR-S-09 | BT-117 | the VAT of a standard-rated group, which is BR-CO-17 under the narrower name a validator reports |
-| BR-Z-05, BR-E-05, BR-AE-05, BR-K-05, BR-G-05, BR-O-05 | BT-119 | a group that charges no VAT carries a zero rate |
-| BR-Z-10, BR-E-10, BR-AE-10, BR-K-10, BR-G-10, BR-O-10 | BT-120 | it says why no VAT is charged |
+| BR-Z-05, BR-E-05, BR-AE-05, BR-IC-05, BR-G-05, BR-O-05 | BT-119 | a group that charges no VAT carries a zero rate |
+| BR-Z-10, BR-E-10, BR-AE-10, BR-IC-10, BR-G-10, BR-O-10 | BT-120 | it says why no VAT is charged |
 | BR-CO-18 | BG-23 | every category and rate used on a line, an allowance or a charge has a group; two groups sharing one is a warning |
+
+The intra-community category K is reported under `BR-IC-*`, which is the name
+EN 16931 gives those rules and the one a receiver quotes.
 
 ### Totals
 

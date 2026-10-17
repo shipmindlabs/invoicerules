@@ -168,6 +168,52 @@ test("a zero-VAT category without an exemption reason is refused", () => {
   assert.equal(validate(withReason).ok, true);
 });
 
+// EN 16931 names the category K rules BR-IC-01..12, so BR-K-10 is a string no
+// receiver will ever quote back.
+test("an intra-community group without a reason fails BR-IC-10, not BR-K-10", () => {
+  const intraCommunity = invoice({
+    lines: [
+      {
+        id: "1",
+        name: "Consulting",
+        quantity: 2,
+        netPrice: "100.00",
+        netAmount: "200.00",
+        vatCategory: "K",
+        vatRate: "0",
+      },
+    ],
+    vatBreakdown: [{ category: "K", rate: "0", taxableAmount: "200.00", taxAmount: "0.00" }],
+    totals: {
+      lineTotal: "200.00",
+      taxExclusive: "200.00",
+      taxTotal: "0.00",
+      taxInclusive: "200.00",
+      payable: "200.00",
+    },
+  });
+
+  const result = validate(intraCommunity);
+  assert.ok(rules(result).includes("BR-IC-10"));
+  assert.ok(!rules(result).some((rule) => rule.startsWith("BR-K-")));
+
+  const evaluated = result.coverage.map((entry) => entry.rule);
+  assert.ok(evaluated.includes("BR-IC-05"));
+  assert.ok(!evaluated.includes("BR-K-05"));
+
+  const withReason = {
+    ...intraCommunity,
+    vatBreakdown: [
+      {
+        ...intraCommunity.vatBreakdown[0],
+        exemptionReason: "Intra-community supply",
+        exemptionReasonCode: "VATEX-EU-IC",
+      },
+    ],
+  };
+  assert.equal(validate(withReason).ok, true);
+});
+
 test("a VAT identifier without its country prefix is caught", () => {
   const result = validate(
     invoice({

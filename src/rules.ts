@@ -116,8 +116,20 @@ export const UNCHECKED_PAYMENT_RULES: readonly UncheckedRule[] = [
   },
 ];
 
-/** Categories that charge no VAT and therefore need a reason. */
-const NEEDS_EXEMPTION_REASON: ReadonlySet<VatCategory> = new Set(["Z", "E", "AE", "K", "G", "O"]);
+/**
+ * Categories that charge no VAT and therefore need a reason, each with the
+ * identifier its rules carry. The identifier is not always the category letter:
+ * EN 16931 names the category K rules BR-IC-01..12, so BR-K-10 is a string no
+ * receiver will ever quote back.
+ */
+const NO_VAT_RULES: ReadonlyMap<VatCategory, string> = new Map<VatCategory, string>([
+  ["Z", "BR-Z"],
+  ["E", "BR-E"],
+  ["AE", "BR-AE"],
+  ["K", "BR-IC"],
+  ["G", "BR-G"],
+  ["O", "BR-O"],
+]);
 
 /** UNCL4461 codes that mean a credit transfer, which is what BR-61 turns on. */
 const CREDIT_TRANSFER_CODES: ReadonlySet<string> = new Set(["30", "31", "58"]);
@@ -440,14 +452,15 @@ function validateVat(invoice: Invoice, check: Check, fail: Report, warn: Report)
 
     // Charging nothing without saying why is the rejection that surprises
     // people: the amount is right, the reason is missing.
-    if (NEEDS_EXEMPTION_REASON.has(group.category)) {
-      check(`BR-${group.category}-10`,
+    const noVatRule = NO_VAT_RULES.get(group.category);
+    if (noVatRule) {
+      check(`${noVatRule}-10`,
         !!(group.exemptionReason?.trim() || group.exemptionReasonCode?.trim()),
         `${at}.exemptionReason`,
         `category ${group.category} charges no VAT but gives no exemption reason`);
       const rate = safeDecimal(group.rate);
       if (rate) {
-        check(`BR-${group.category}-05`, rate.equals(ZERO_RATE), `${at}.rate`,
+        check(`${noVatRule}-05`, rate.equals(ZERO_RATE), `${at}.rate`,
           `category ${group.category} must carry a zero rate, not ${group.rate}`);
       }
     }
