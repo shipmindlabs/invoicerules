@@ -361,6 +361,14 @@ list, further up.
 
 ## What it does not do
 
+**It is not a mandate calendar.** `validate` takes an `Invoice` and nothing
+else: no country, no date. So this library never decides whether a national
+e-invoicing obligation applies to a document, or from when. The dates in the
+opening paragraph are why these checks exist, not rules it evaluates. A passing
+`Result` means the catalog's EN 16931 checks hold — not that a national mandate
+such as KSeF's FA(3) format or the French CTC rules is met, which is the first
+entry in "What is not checked" above.
+
 **It is not a Peppol access point.** It writes the document; getting it to the
 receiver is a different job, with registration and certificates attached.
 
