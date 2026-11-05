@@ -3,11 +3,13 @@
 Check an invoice against the EN 16931 business rules before a tax platform does.
 
 From 2026 a rejected invoice stops being an email nobody answered and becomes a
-document a government platform refuses. Belgium requires Peppol from January
-2026, Poland's KSeF clears every invoice before it counts as delivered, and from
-September 2026 every business in France must be able to receive one. Under a
-clearance model an invoice that fails validation was never issued — so failing
-at your own desk, with a message naming the rule, beats failing at theirs.
+document a government platform refuses. Belgium requires Peppol
+[from January 2026](https://einvoice.belgium.be/en/article/structured-electronic-invoices-between-companies-are-compulsory-2026),
+Poland's KSeF clears every invoice before it counts as delivered, and
+[from September 2026](https://www.impots.gouv.fr/professionnel/questions/partir-de-quand-suis-je-concerne-par-la-reforme-de-la-facturation)
+every business in France must be able to receive one. Under a clearance model an
+invoice that fails validation was never issued — so failing at your own desk,
+with a message naming the rule, beats failing at theirs.
 
 ```console
 $ npm run demo

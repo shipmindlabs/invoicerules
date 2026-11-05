@@ -2,6 +2,9 @@
  * Writing the document as UBL 2.1 — an Invoice or a CreditNote, the syntax
  * Peppol carries and Belgium mandates from January 2026.
  *
+ * Source for the Belgian date:
+ * https://einvoice.belgium.be/en/article/structured-electronic-invoices-between-companies-are-compulsory-2026
+ *
  * One mapping writes both. The document type code decides the root element, the
  * line element and the quantity element; parties, allowances and charges, the
  * VAT breakdown and the totals are the same document either way, so a credit
