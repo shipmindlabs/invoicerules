@@ -51,3 +51,17 @@ test("what is not a number is refused rather than coerced", () => {
     assert.throws(() => Decimal.parse(value), InvalidNumber, `accepted "${value}"`);
   }
 });
+
+// A small number arrives from JavaScript in exponent form, which no invoice
+// element may carry; the same text typed by hand is still refused.
+test("a number in exponent form is expanded, not refused", () => {
+  assert.equal(Decimal.parse(1e-7).toString(), "0.0000001");
+  assert.equal(Decimal.parse(1.5e-7).toString(), "0.00000015");
+  assert.equal(Decimal.parse(-1e-7).toString(), "-0.0000001");
+  assert.equal(Decimal.parse(1e21).toString(), "1000000000000000000000");
+  assert.equal(Decimal.parse(0.5).toString(), "0.5");
+
+  assert.throws(() => Decimal.parse("1e-7"), InvalidNumber);
+  assert.throws(() => Decimal.parse(Number.NaN), InvalidNumber);
+  assert.throws(() => Decimal.parse(Number.POSITIVE_INFINITY), InvalidNumber);
+});

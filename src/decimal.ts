@@ -20,7 +20,7 @@ export class Decimal {
   }
 
   static parse(value: string | number): Decimal {
-    const text = String(value).trim();
+    const text = (typeof value === "number" ? plain(value) : value).trim();
     if (!/^-?\d+(\.\d+)?$/.test(text)) {
       throw new InvalidNumber(`"${value}" is not a decimal number`);
     }
@@ -110,4 +110,23 @@ export class Decimal {
 
 export function sum(values: readonly (string | number)[]): Decimal {
   return values.reduce<Decimal>((total, value) => total.add(Decimal.parse(value)), Decimal.zero(2));
+}
+
+/**
+ * A number as plain decimal text. `String(1e-7)` is "1e-7", a form no invoice
+ * element may carry and no decimal parser on the other side will accept, so the
+ * exponent is written out. The same text handed in as a string stays refused:
+ * only a number can have arrived in that form without someone typing it.
+ */
+function plain(value: number): string {
+  const text = String(value);
+  const exponential = /^(-?)(\d+)(?:\.(\d+))?e([+-]?\d+)$/i.exec(text);
+  if (!exponential) return text;
+
+  const [, sign, whole, fraction = "", exponent] = exponential;
+  const digits = whole + fraction;
+  const point = whole.length + Number(exponent);
+  if (point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`;
+  if (point >= digits.length) return sign + digits + "0".repeat(point - digits.length);
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
 }

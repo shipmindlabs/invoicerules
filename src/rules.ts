@@ -220,7 +220,8 @@ export function validate(invoice: Invoice): Result {
       check("BR-27", netPrice.compare(ZERO) >= 0, `${at}.netPrice`,
         `the item net price ${netPrice.toFixed()} is negative`);
     }
-    notNegative(`${at}.quantity`, "the line quantity", safeDecimal(String(line.quantity)));
+    const quantity = safeDecimal(line.quantity);
+    notNegative(`${at}.quantity`, "the line quantity", quantity);
     notNegative(`${at}.netAmount`, "the line amount", safeDecimal(line.netAmount));
 
     validateAdjustments(line.allowances ?? [], `${at}.allowances`, "line allowance",
@@ -237,10 +238,11 @@ export function validate(invoice: Invoice): Result {
     try {
       const expected = expectedLineNet(line);
       const stated = Decimal.parse(line.netAmount);
+      const counted = quantity ?? Decimal.parse(line.quantity);
       check("PEPPOL-EN16931-R120", stated.equalsWithin(expected, TOLERANCE), `${at}.netAmount`,
         adjusted
-          ? `the line amount ${stated.toFixed()} does not match ${line.quantity} × ${line.netPrice} less its allowances and plus its charges, ${expected.toFixed()}`
-          : `the line amount ${stated.toFixed()} does not match ${line.quantity} × ${line.netPrice} = ${expected.toFixed()}`);
+          ? `the line amount ${stated.toFixed()} does not match ${counted} × ${line.netPrice} less its allowances and plus its charges, ${expected.toFixed()}`
+          : `the line amount ${stated.toFixed()} does not match ${counted} × ${line.netPrice} = ${expected.toFixed()}`);
     } catch {
       fail("PEPPOL-EN16931-R120", "the line quantity, price or amount is not a number", `${at}.netAmount`);
     }
@@ -494,7 +496,7 @@ function validateVat(invoice: Invoice, check: Check, fail: Report, warn: Report)
   }
 }
 
-function safeDecimal(value: string | undefined): Decimal | undefined {
+function safeDecimal(value: string | number | undefined): Decimal | undefined {
   if (value === undefined) return undefined;
   try {
     return Decimal.parse(value);

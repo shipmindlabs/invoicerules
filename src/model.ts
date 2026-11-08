@@ -116,8 +116,12 @@ export type Line = {
   readonly id: string;
   /** BT-153: what was sold. */
   readonly name: string;
-  /** BT-129: quantity. */
-  readonly quantity: number;
+  /**
+   * BT-129: quantity, as a decimal string or a number. A number is normalised
+   * through Decimal before it is written, so a small one never reaches the
+   * document in exponent form.
+   */
+  readonly quantity: string | number;
   /** BT-146: net price of one item. */
   readonly netPrice: Amount;
   /** BT-131: line net amount, quantity × price less the line's allowances and plus its charges. */
