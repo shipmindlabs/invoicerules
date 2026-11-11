@@ -156,3 +156,33 @@ test("a line charge is found after the line allowances that precede it", () => {
     "/Invoice/InvoiceLine[1]/AllowanceCharge[2]/AllowanceChargeReason",
   );
 });
+
+/** One line of quantity × 20.00, with no line allowances or charges. */
+function priced(quantity: string | number, net: string, tax: string, gross: string): Invoice {
+  return invoice({
+    lines: [line({ quantity, netAmount: net, allowances: [], charges: [] })],
+    vatBreakdown: [{ category: "S", rate: "23", taxableAmount: net, taxAmount: tax }],
+    totals: {
+      lineTotal: net,
+      taxExclusive: net,
+      taxTotal: tax,
+      taxInclusive: gross,
+      payable: gross,
+    },
+  });
+}
+
+const quantityOf = (xml: string) =>
+  /<cbc:InvoicedQuantity unitCode="C62">([^<]*)</.exec(xml)![1];
+
+// String(1e-7) is "1e-7", a form no UBL decimal element may carry.
+test("the line quantity is written as plain decimal text, never in exponent form", () => {
+  const xml = toUBL(priced(1e-7, "0.00", "0.00", "0.00"));
+  assert.equal(quantityOf(xml), "0.0000001");
+  assert.ok(!xml.includes("e-7"));
+});
+
+test("a fractional quantity keeps its digits, given as a number or as a string", () => {
+  assert.equal(quantityOf(toUBL(priced(0.5, "10.00", "2.30", "12.30"))), "0.5");
+  assert.equal(quantityOf(toUBL(priced("0.50", "10.00", "2.30", "12.30"))), "0.50");
+});

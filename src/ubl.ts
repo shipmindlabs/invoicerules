@@ -16,6 +16,7 @@
  * release schedule. It is listed as missing rather than half-built.
  */
 
+import { Decimal } from "./decimal.ts";
 import { syntaxFor } from "./paths.ts";
 import { validate } from "./rules.ts";
 import type {
@@ -76,7 +77,7 @@ export function toUBL(invoice: Invoice, options: UblOptions = {}): string {
     ];
     return `  <cac:${syntax.line}>
     <cbc:ID>${esc(line.id)}</cbc:ID>
-    <cbc:${syntax.quantity} unitCode="C62">${esc(String(line.quantity))}</cbc:${syntax.quantity}>
+    <cbc:${syntax.quantity} unitCode="C62">${esc(quantityText(line.quantity))}</cbc:${syntax.quantity}>
     <cbc:LineExtensionAmount currencyID="${esc(currency)}">${esc(line.netAmount)}</cbc:LineExtensionAmount>
 ${lineAdjustments.length > 0 ? lineAdjustments.join("\n") + "\n" : ""}    <cac:Item>
       <cbc:Name>${esc(line.name)}</cbc:Name>
@@ -142,6 +143,16 @@ ${totals.allowanceTotal ? `    <cbc:AllowanceTotalAmount currencyID="${esc(curre
 ${lines.join("\n")}
 </${syntax.root}>
 `;
+}
+
+/** BT-129 as plain decimal text, so a small quantity never reaches the document as "1e-7". */
+function quantityText(value: string | number): string {
+  try {
+    return Decimal.parse(value).toString();
+  } catch {
+    // Not a number at all: the rules refuse it, and allowInvalid asked for the document anyway.
+    return String(value);
+  }
 }
 
 function party(party: Party): string {

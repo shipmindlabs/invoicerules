@@ -103,6 +103,11 @@ of difference a validator rejects. Every amount is an integer and a scale, with
 half-up rounding, and a one-cent rounding difference on a total is tolerated
 because it is normal — two cents is not.
 
+The line quantity (BT-129) goes through the same decimal, and may be given as a
+decimal string or as a number. `String(1e-7)` is `1e-7`, a form no UBL decimal
+element may carry and no parser on the receiving end will accept, so what is
+written is `0.0000001`.
+
 ## The VAT breakdown is computed, not summarised
 
 A breakdown group is not a summary of the lines. A document level discount
