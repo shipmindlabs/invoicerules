@@ -73,6 +73,18 @@ export type PaymentMeans = {
 };
 
 /**
+ * BG-3: an invoice this document refers back to, which on a credit note is
+ * what it credits. It is a reference and not a copy: the number the receiver
+ * already has on file, and the date that invoice was issued.
+ */
+export type PrecedingInvoice = {
+  /** BT-25: the number of the invoice referred to. */
+  readonly id: string;
+  /** BT-26: the date that invoice was issued. */
+  readonly issueDate?: string;
+};
+
+/**
  * UNCL5305 VAT category codes. The four that decide whether an invoice needs a
  * reason for charging no VAT.
  */
@@ -224,4 +236,6 @@ export type Invoice = {
   readonly paymentTerms?: string;
   /** BT-13: the buyer's purchase order reference. */
   readonly purchaseOrderReference?: string;
+  /** BG-3: the invoices this document refers back to, e.g. the one it credits. */
+  readonly precedingInvoices?: readonly PrecedingInvoice[];
 };

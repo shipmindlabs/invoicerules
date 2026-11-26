@@ -17,6 +17,7 @@ export type {
   PartyIdentification,
   Payee,
   PaymentMeans,
+  PrecedingInvoice,
   Totals,
   VatBreakdown,
   VatCategory,

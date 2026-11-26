@@ -26,6 +26,7 @@ import type {
   Party,
   Payee,
   PaymentMeans,
+  PrecedingInvoice,
   VatBreakdown,
 } from "./model.ts";
 
@@ -109,6 +110,8 @@ ${lineAdjustments.length > 0 ? lineAdjustments.join("\n") + "\n" : ""}    <cac:I
   const orderReference = invoice.purchaseOrderReference
     ? `  <cac:OrderReference><cbc:ID>${esc(invoice.purchaseOrderReference)}</cbc:ID></cac:OrderReference>\n`
     : "";
+  const referred = (invoice.precedingInvoices ?? []).map(billingReference);
+  const billingReferences = referred.length > 0 ? referred.join("\n") + "\n" : "";
   const paymentTerms = invoice.paymentTerms
     ? `  <cac:PaymentTerms><cbc:Note>${esc(invoice.paymentTerms)}</cbc:Note></cac:PaymentTerms>\n`
     : "";
@@ -124,7 +127,7 @@ ${continuation}xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBas
   <cbc:IssueDate>${esc(invoice.issueDate)}</cbc:IssueDate>
 ${dueDate}  <cbc:${syntax.typeCode}>${esc(invoice.typeCode)}</cbc:${syntax.typeCode}>
   <cbc:DocumentCurrencyCode>${esc(currency)}</cbc:DocumentCurrencyCode>
-${orderReference}  <cac:AccountingSupplierParty>
+${orderReference}${billingReferences}  <cac:AccountingSupplierParty>
 ${party(invoice.seller)}
   </cac:AccountingSupplierParty>
   <cac:AccountingCustomerParty>
@@ -185,6 +188,24 @@ function payeeParty(payee: Payee): string {
     parts.push(`    <cac:PartyLegalEntity><cbc:CompanyID>${esc(payee.legalId)}</cbc:CompanyID></cac:PartyLegalEntity>`);
   }
   parts.push("  </cac:PayeeParty>");
+  return parts.join("\n");
+}
+
+/**
+ * BG-3, which a credit note uses to name what it credits. UBL keeps it as a
+ * reference to a document rather than a copy of it, which is where a receiver
+ * looks to match the correction back to the invoice it corrects.
+ */
+function billingReference(reference: PrecedingInvoice): string {
+  const parts = [
+    "  <cac:BillingReference>",
+    "    <cac:InvoiceDocumentReference>",
+    `      <cbc:ID>${esc(reference.id)}</cbc:ID>`,
+  ];
+  if (reference.issueDate) {
+    parts.push(`      <cbc:IssueDate>${esc(reference.issueDate)}</cbc:IssueDate>`);
+  }
+  parts.push("    </cac:InvoiceDocumentReference>", "  </cac:BillingReference>");
   return parts.join("\n");
 }
 
